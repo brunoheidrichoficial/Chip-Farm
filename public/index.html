@@ -5,6 +5,173 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chip Farm - Dashboard</title>
   <link rel="stylesheet" href="/css/farm.css">
+  <style>
+    .filters-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+      margin-bottom: 20px;
+    }
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .filter-group label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-light);
+    }
+    .filter-group select, .filter-group input[type="date"] {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      background: white;
+      min-width: 150px;
+    }
+    .filter-group select:focus, .filter-group input[type="date"]:focus {
+      outline: none;
+      border-color: var(--green-light);
+      box-shadow: 0 0 0 3px rgba(74,140,94,0.15);
+    }
+    .filter-group select[multiple] {
+      min-height: 70px;
+    }
+    .btn-filter {
+      padding: 8px 18px;
+      background: var(--green-mid);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .btn-filter:hover { opacity: 0.9; }
+    .btn-clear {
+      padding: 8px 18px;
+      background: var(--beige);
+      color: var(--brown-mid);
+      border: 1px solid var(--beige-dark);
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    /* Route panels */
+    .route-panel {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 0;
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+      border: 1px solid rgba(0,0,0,0.04);
+      overflow: hidden;
+    }
+    .route-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: linear-gradient(135deg, var(--green-dark), var(--green-mid));
+      color: white;
+      cursor: pointer;
+    }
+    .route-header:hover { opacity: 0.95; }
+    .route-name {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .route-supplier {
+      font-size: 12px;
+      opacity: 0.7;
+      margin-left: 8px;
+    }
+    .route-summary-badges {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .route-summary-badges .stat {
+      text-align: center;
+      font-size: 11px;
+      opacity: 0.8;
+    }
+    .route-summary-badges .stat-value {
+      font-size: 16px;
+      font-weight: 700;
+      opacity: 1;
+    }
+    .route-totals {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1px;
+      background: #eee;
+      border-bottom: 1px solid #eee;
+    }
+    .route-totals .total-cell {
+      background: var(--green-pale);
+      padding: 12px 16px;
+      text-align: center;
+    }
+    .total-cell .total-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-light);
+      margin-bottom: 2px;
+    }
+    .total-cell .total-value {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--green-dark);
+    }
+    .total-cell .total-value.good { color: var(--green-light); }
+    .total-cell .total-value.warn { color: var(--gold); }
+    .total-cell .total-value.bad { color: var(--red); }
+
+    .route-body { padding: 0; }
+    .route-body table { margin: 0; }
+    .route-body thead th {
+      background: #f5f5f0;
+      font-size: 11px;
+      padding: 10px 16px;
+    }
+    .route-body tbody td {
+      padding: 10px 16px;
+      font-size: 13px;
+    }
+
+    /* Global summary */
+    .global-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .global-summary .card {
+      padding: 16px;
+    }
+    .global-summary .card-value {
+      font-size: 22px;
+    }
+
+    .no-data {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-light);
+      font-size: 15px;
+    }
+  </style>
 </head>
 <body>
   <div class="app">
@@ -23,37 +190,108 @@
       </nav>
     </header>
 
-    <!-- Summary Cards -->
-    <div class="cards-grid" id="cards">
-      <div class="card">
-        <div class="card-icon">🌱</div>
-        <div class="card-label">Ultimo Teste</div>
-        <div class="card-value" id="lastRun">--</div>
-        <div class="card-detail" id="lastRunDetail"></div>
+    <!-- Filters -->
+    <div class="panel">
+      <div class="panel-header" style="margin-bottom:12px">
+        <div class="panel-title">🔍 Filtros</div>
       </div>
-      <div class="card">
-        <div class="card-icon">🌻</div>
-        <div class="card-label">Taxa de Entrega</div>
-        <div class="card-value" id="deliveryRate">--</div>
-        <div class="card-detail" id="deliveryDetail"></div>
-      </div>
-      <div class="card">
-        <div class="card-icon">🚜</div>
-        <div class="card-label">Melhor Rota</div>
-        <div class="card-value" id="bestRoute" style="font-size:18px">--</div>
-      </div>
-      <div class="card">
-        <div class="card-icon">⚠️</div>
-        <div class="card-label">Alertas</div>
-        <div class="card-value" id="alertCount">0</div>
-        <div class="card-detail" id="alertDetail"></div>
+      <div class="filters-bar">
+        <div class="filter-group">
+          <label>Campanhas</label>
+          <select id="filterCampaigns" multiple>
+            <option value="">Carregando...</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Data de</label>
+          <input type="date" id="filterDateFrom">
+        </div>
+        <div class="filter-group">
+          <label>Data ate</label>
+          <input type="date" id="filterDateTo">
+        </div>
+        <div class="filter-group">
+          <label>Rotas</label>
+          <select id="filterRoutes" multiple>
+            <option value="">Carregando...</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Operadoras</label>
+          <select id="filterNetworks" multiple>
+            <option value="">Carregando...</option>
+          </select>
+        </div>
+        <div class="filter-group" style="flex-direction:row;gap:8px;align-self:flex-end">
+          <button class="btn-filter" onclick="applyFilters()">Filtrar</button>
+          <button class="btn-clear" onclick="clearFilters()">Limpar</button>
+        </div>
       </div>
     </div>
 
+    <!-- Global Summary -->
+    <div class="global-summary" id="globalSummary" style="display:none">
+      <div class="card">
+        <div class="card-icon">📨</div>
+        <div class="card-label">Total Enviados</div>
+        <div class="card-value" id="gSent">--</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌻</div>
+        <div class="card-label">Entregues</div>
+        <div class="card-value" id="gDelivered">--</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">📊</div>
+        <div class="card-label">Taxa Entrega</div>
+        <div class="card-value" id="gRate">--</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🚫</div>
+        <div class="card-label">Fake DLRs</div>
+        <div class="card-value" id="gFakeDlrs">--</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">⏱️</div>
+        <div class="card-label">Latencia Media</div>
+        <div class="card-value" id="gLatency">--</div>
+      </div>
+    </div>
+
+    <!-- Route-centric results -->
+    <div id="routeResults">
+      <div class="no-data" id="noData">Selecione filtros e clique em "Filtrar" para ver os resultados</div>
+    </div>
+
     <!-- Actions -->
-    <div style="display:flex;gap:12px;margin-bottom:24px">
+    <div style="display:flex;gap:12px;margin:24px 0">
       <a href="/campaign.html" class="btn btn-primary">🌱 Nova Campanha</a>
       <button class="btn btn-secondary" id="btnRunNow" onclick="runNow()">🚜 Rodar Teste Agora</button>
+    </div>
+
+    <!-- Campaigns -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">📋 Campanhas Salvas</div>
+        <a href="/campaign.html" class="btn btn-sm btn-secondary">+ Nova</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Rotas</th>
+              <th>Operadoras</th>
+              <th>Config</th>
+              <th>Cron</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="campaignsTable">
+            <tr><td colspan="6" class="empty-state"><p>Nenhuma campanha criada</p></td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Recent Runs -->
@@ -74,39 +312,6 @@
           </thead>
           <tbody id="runsTable">
             <tr><td colspan="5" class="empty-state"><p>Carregando...</p></td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Scores by Network (latest run) -->
-    <div class="panel" id="scoresPanel" style="display:none">
-      <div class="panel-header">
-        <div class="panel-title">🌻 Scores por Operadora (Ultimo Teste)</div>
-      </div>
-      <div id="scoresContent"></div>
-    </div>
-
-    <!-- Campaigns -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">📋 Campanhas Salvas</div>
-        <a href="/campaign.html" class="btn btn-sm btn-secondary">+ Nova</a>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Rotas</th>
-              <th>Operadoras</th>
-              <th>Testes/Combo</th>
-              <th>Cron</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="campaignsTable">
-            <tr><td colspan="6" class="empty-state"><p>Nenhuma campanha criada</p></td></tr>
           </tbody>
         </table>
       </div>

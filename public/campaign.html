@@ -5,6 +5,95 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chip Farm - Nova Campanha</title>
   <link rel="stylesheet" href="/css/farm.css">
+  <style>
+    .mode-toggle {
+      display: inline-flex;
+      background: #f0f0f0;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .mode-toggle button {
+      padding: 8px 18px;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      color: var(--text-light);
+      transition: all 0.2s;
+    }
+    .mode-toggle button.active {
+      background: var(--green-mid);
+      color: white;
+    }
+    .total-tests-row {
+      display: none;
+      margin-bottom: 12px;
+    }
+    .total-tests-row.visible { display: block; }
+    .route-row, .network-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: #fafaf5;
+      border: 1px solid #eee;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .route-row:hover, .network-row:hover {
+      background: var(--green-pale);
+      border-color: var(--green-light);
+    }
+    .route-row input[type="checkbox"], .network-row input[type="checkbox"] {
+      flex-shrink: 0;
+    }
+    .route-row .route-info, .network-row .network-info {
+      flex: 1;
+      font-size: 13px;
+      user-select: none;
+      cursor: pointer;
+    }
+    .route-row .route-info small, .network-row .network-info small {
+      color: var(--text-light);
+      font-weight: 400;
+    }
+    .route-row input[type="number"], .network-row input[type="number"] {
+      width: 80px;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      text-align: center;
+    }
+    .route-row input[type="number"]:focus, .network-row input[type="number"]:focus {
+      outline: none;
+      border-color: var(--green-light);
+    }
+    .route-row .unit, .network-row .unit {
+      font-size: 12px;
+      color: var(--text-light);
+      min-width: 20px;
+    }
+    .pct-summary {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .pct-summary.ok { background: #e8f5e9; color: #2e7d32; }
+    .pct-summary.warn { background: #fff8e1; color: #f57f17; }
+    .pct-summary.bad { background: #ffebee; color: #c62828; }
+    .network-row.other-row {
+      border: 1px dashed var(--green-light);
+      background: #f5fff5;
+    }
+  </style>
 </head>
 <body>
   <div class="app">
@@ -23,6 +112,18 @@
       </nav>
     </header>
 
+    <!-- AI Builder -->
+    <div class="panel" style="border-left:4px solid var(--green-light)">
+      <div class="panel-header">
+        <div class="panel-title">🤖 Montar campanha com IA</div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <textarea id="aiPrompt" class="form-input" rows="3" placeholder="Ex: '100 disparos Sona BET 2, 120 Pushfy, 25% cada operadora' ou 'Testar todas as rotas, 50 cada, Claro 40% TIM 30% Vivo 30%'"></textarea>
+      </div>
+      <button type="button" class="btn btn-primary" id="btnAi" onclick="buildWithAI()">🤖 Montar Campanha</button>
+      <span id="aiStatus" style="margin-left:12px;font-size:13px;color:var(--text-light)"></span>
+    </div>
+
     <!-- Campaign Form -->
     <div class="panel">
       <div class="panel-header">
@@ -38,29 +139,31 @@
 
         <!-- Routes -->
         <div class="form-group">
-          <label class="form-label">Rotas (selecione as que deseja testar)</label>
+          <label class="form-label">Rotas</label>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <div class="mode-toggle" id="routeModeToggle">
+              <button type="button" data-mode="qty" class="active" onclick="setRouteMode('qty')">Quantidade</button>
+              <button type="button" data-mode="pct" onclick="setRouteMode('pct')">Percentual</button>
+            </div>
+            <div class="total-tests-row" id="totalTestsRow">
+              <label style="font-size:13px;font-weight:500">Total de disparos:
+                <input type="number" id="totalTests" min="1" class="form-input" style="width:100px;display:inline-block;padding:6px 8px" placeholder="200">
+              </label>
+            </div>
+          </div>
           <div class="checkbox-grid" id="routesGrid">
             <p style="color:var(--text-light)">Carregando rotas...</p>
           </div>
+          <div id="routePctSummary"></div>
         </div>
 
         <!-- Networks -->
         <div class="form-group">
-          <label class="form-label">Operadoras</label>
+          <label class="form-label">Operadoras (distribuicao por %)</label>
           <div class="checkbox-grid" id="networksGrid">
             <p style="color:var(--text-light)">Carregando operadoras...</p>
           </div>
-        </div>
-
-        <!-- Tests per combo -->
-        <div class="form-group">
-          <label class="form-label">Testes por combinacao (rota x operadora)</label>
-          <select id="testsPerCombo" class="form-select">
-            <option value="1">1</option>
-            <option value="5">5</option>
-            <option value="10">10</option>
-            <option value="33">33</option>
-          </select>
+          <div id="networkPctSummary"></div>
         </div>
 
         <!-- Personal numbers -->

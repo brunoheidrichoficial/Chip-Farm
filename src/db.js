@@ -20,7 +20,8 @@ function initTables() {
       started_at TEXT NOT NULL,
       finished_at TEXT,
       total_tests INTEGER DEFAULT 0,
-      status TEXT DEFAULT 'running'
+      status TEXT DEFAULT 'running',
+      campaign_id INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS test_results (
@@ -83,6 +84,8 @@ function initTables() {
       routes TEXT NOT NULL,
       networks TEXT NOT NULL,
       tests_per_combo INTEGER DEFAULT 1,
+      route_mode TEXT DEFAULT 'qty',
+      total_tests INTEGER,
       personal_numbers TEXT,
       cron_schedule TEXT,
       created_at TEXT DEFAULT (datetime('now')),
@@ -92,7 +95,11 @@ function initTables() {
 }
 
 // Insert a new test run
-function createRun() {
+function createRun(campaignId) {
+  if (campaignId) {
+    const stmt = getDb().prepare("INSERT INTO test_runs (started_at, campaign_id) VALUES (datetime('now'), ?)");
+    return stmt.run(campaignId).lastInsertRowid;
+  }
   const stmt = getDb().prepare("INSERT INTO test_runs (started_at) VALUES (datetime('now'))");
   return stmt.run().lastInsertRowid;
 }
@@ -223,14 +230,16 @@ function getCampaign(id) {
 
 function createCampaign(data) {
   const stmt = getDb().prepare(`
-    INSERT INTO campaigns (name, routes, networks, tests_per_combo, personal_numbers, cron_schedule)
-    VALUES (@name, @routes, @networks, @testsPerCombo, @personalNumbers, @cronSchedule)
+    INSERT INTO campaigns (name, routes, networks, tests_per_combo, route_mode, total_tests, personal_numbers, cron_schedule)
+    VALUES (@name, @routes, @networks, @testsPerCombo, @routeMode, @totalTests, @personalNumbers, @cronSchedule)
   `);
   return stmt.run({
     name: data.name,
     routes: JSON.stringify(data.routes),
     networks: JSON.stringify(data.networks),
     testsPerCombo: data.tests_per_combo || 1,
+    routeMode: data.route_mode || 'qty',
+    totalTests: data.total_tests || null,
     personalNumbers: data.personal_numbers ? JSON.stringify(data.personal_numbers) : null,
     cronSchedule: data.cron_schedule || null,
   }).lastInsertRowid;
@@ -239,8 +248,8 @@ function createCampaign(data) {
 function updateCampaign(id, data) {
   const stmt = getDb().prepare(`
     UPDATE campaigns SET name = @name, routes = @routes, networks = @networks,
-    tests_per_combo = @testsPerCombo, personal_numbers = @personalNumbers,
-    cron_schedule = @cronSchedule, active = @active WHERE id = @id
+    tests_per_combo = @testsPerCombo, route_mode = @routeMode, total_tests = @totalTests,
+    personal_numbers = @personalNumbers, cron_schedule = @cronSchedule, active = @active WHERE id = @id
   `);
   return stmt.run({
     id,
@@ -248,10 +257,75 @@ function updateCampaign(id, data) {
     routes: JSON.stringify(data.routes),
     networks: JSON.stringify(data.networks),
     testsPerCombo: data.tests_per_combo || 1,
+    routeMode: data.route_mode || 'qty',
+    totalTests: data.total_tests || null,
     personalNumbers: data.personal_numbers ? JSON.stringify(data.personal_numbers) : null,
     cronSchedule: data.cron_schedule || null,
     active: data.active !== undefined ? data.active : 1,
   });
+}
+
+// ─── Filtered aggregated results ───
+
+function getAggregatedResults(filters = {}) {
+  let where = "1=1";
+  const params = [];
+
+  if (filters.campaignIds && filters.campaignIds.length) {
+    const placeholders = filters.campaignIds.map(() => "?").join(",");
+    where += ` AND r.campaign_id IN (${placeholders})`;
+    params.push(...filters.campaignIds);
+  }
+
+  if (filters.dateFrom) {
+    where += " AND tr.created_at >= ?";
+    params.push(filters.dateFrom);
+  }
+
+  if (filters.dateTo) {
+    where += " AND tr.created_at <= ?";
+    params.push(filters.dateTo + " 23:59:59");
+  }
+
+  if (filters.routeIds && filters.routeIds.length) {
+    const placeholders = filters.routeIds.map(() => "?").join(",");
+    where += ` AND tr.route_id IN (${placeholders})`;
+    params.push(...filters.routeIds);
+  }
+
+  if (filters.networkNames && filters.networkNames.length) {
+    const placeholders = filters.networkNames.map(() => "?").join(",");
+    where += ` AND tr.network_name IN (${placeholders})`;
+    params.push(...filters.networkNames);
+  }
+
+  const sql = `
+    SELECT
+      tr.route_id, tr.route_name, tr.supplier, tr.route_type,
+      tr.network_mcc, tr.network_mnc, tr.network_name,
+      COUNT(*) as sent,
+      SUM(CASE WHEN tr.telq_status = 'POSITIVE' THEN 1 ELSE 0 END) as delivered,
+      SUM(CASE WHEN tr.telq_status != 'POSITIVE' OR tr.telq_status IS NULL THEN 1 ELSE 0 END) as undelivered,
+      SUM(CASE WHEN tr.fake_dlr = 1 THEN 1 ELSE 0 END) as fake_dlrs,
+      AVG(CASE WHEN tr.telq_delay_seconds IS NOT NULL THEN tr.telq_delay_seconds END) as avg_latency
+    FROM test_results tr
+    JOIN test_runs r ON tr.run_id = r.id
+    WHERE ${where}
+    GROUP BY tr.route_id, tr.route_name, tr.supplier, tr.network_name
+    ORDER BY tr.route_name, tr.network_name
+  `;
+
+  return getDb().prepare(sql).all(...params);
+}
+
+// Get distinct network names from test results
+function getDistinctNetworks() {
+  return getDb().prepare("SELECT DISTINCT network_name FROM test_results WHERE network_name IS NOT NULL ORDER BY network_name").all().map(r => r.network_name);
+}
+
+// Get distinct routes from test results
+function getDistinctRoutes() {
+  return getDb().prepare("SELECT DISTINCT route_id, route_name, supplier FROM test_results ORDER BY route_name").all();
 }
 
 // ─── Report queries ───
@@ -292,4 +366,7 @@ module.exports = {
   getTestRun,
   getRunScores,
   getLatestRun,
+  getAggregatedResults,
+  getDistinctNetworks,
+  getDistinctRoutes,
 };

@@ -18,11 +18,11 @@ router.get("/:id", (req, res) => {
 
 // Create campaign
 router.post("/", (req, res) => {
-  const { name, routes: routeIds, networks, tests_per_combo, personal_numbers, cron_schedule } = req.body;
-  if (!name || !routeIds || !networks) {
+  const { name, routes: routeData, networks } = req.body;
+  if (!name || !routeData || !networks) {
     return res.status(400).json({ error: "name, routes, and networks are required" });
   }
-  const id = db.createCampaign({ name, routes: routeIds, networks, tests_per_combo, personal_numbers, cron_schedule });
+  const id = db.createCampaign(req.body);
   res.json({ id, ok: true });
 });
 
@@ -42,22 +42,32 @@ router.post("/:id/run", async (req, res) => {
   const campaignRoutes = JSON.parse(campaign.routes);
   const campaignNetworks = JSON.parse(campaign.networks);
 
-  // Filter configured routes to only those in the campaign
-  const selectedRoutes = routes.filter((r) => campaignRoutes.includes(r.id));
-  const selectedNetworks = campaignNetworks.length
-    ? campaignNetworks
-    : targetNetworks;
-
-  // Run test asynchronously
   const { runFullTest } = require("../run-test");
   res.json({ ok: true, message: "Test started" });
 
   try {
-    await runFullTest({
-      routes: selectedRoutes,
-      networks: selectedNetworks,
-      testsPerCombo: campaign.tests_per_combo || 1,
-    });
+    // Detect new format: routes are objects with {id, value} and campaign has route_mode
+    const isNewFormat = campaignRoutes.length > 0 && typeof campaignRoutes[0] === "object";
+
+    if (isNewFormat) {
+      await runFullTest({
+        campaignId: campaign.id,
+        route_mode: campaign.route_mode || "qty",
+        total_tests: campaign.total_tests,
+        routes: campaignRoutes,
+        networks: campaignNetworks,
+      });
+    } else {
+      const selectedRoutes = routes.filter((r) => campaignRoutes.includes(r.id));
+      const selectedNetworks = campaignNetworks.length ? campaignNetworks : targetNetworks;
+
+      await runFullTest({
+        campaignId: campaign.id,
+        routes: selectedRoutes,
+        networks: selectedNetworks,
+        testsPerCombo: campaign.tests_per_combo || 1,
+      });
+    }
   } catch (err) {
     console.error(`[API] Campaign ${campaign.id} test failed:`, err.message);
   }

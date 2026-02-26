@@ -84,6 +84,86 @@ app.get("/api/dashboard", (req, res) => {
   res.json(summary);
 });
 
+// AI campaign builder — natural language → structured config
+app.post("/api/campaign-ai", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "prompt is required" });
+
+  const Anthropic = require("@anthropic-ai/sdk");
+  const client = new Anthropic({ apiKey: config.anthropic.apiKey });
+
+  const routesList = routes.map((r) => `ID ${r.id}: ${r.name} (${r.supplier} - ${r.type})`).join("\n");
+
+  // Get all Brazilian networks from TelQ for the AI to know about
+  let networksList;
+  try {
+    const live = await telq.getNetworks();
+    const seen = new Set();
+    const unique = live.filter((n) => {
+      const key = `${n.mcc}-${n.mnc}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    networksList = unique.map((n) => `MCC ${n.mcc} MNC ${n.mnc}: ${n.name || n.providerName || "MNC " + n.mnc}`).join("\n");
+  } catch {
+    networksList = targetNetworks.map((n) => `MCC ${n.mcc} MNC ${n.mnc}: ${n.name}`).join("\n");
+  }
+
+  try {
+    const msg = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1024,
+      messages: [
+        {
+          role: "user",
+          content: `Voce e um assistente que monta campanhas de teste de SMS. O usuario vai descrever o que quer em linguagem natural e voce deve retornar APENAS um JSON valido (sem markdown, sem explicacao) com a estrutura da campanha.
+
+Rotas disponiveis:
+${routesList}
+
+Operadoras disponiveis (brasileiras):
+${networksList}
+
+Estrutura do JSON de resposta:
+{
+  "name": "Nome da campanha",
+  "route_mode": "qty" ou "pct",
+  "total_tests": numero ou null (obrigatorio se route_mode = "pct"),
+  "routes": [{"id": ID_NUMERICO, "value": NUMERO}],
+  "networks": [
+    {"mcc": "724", "mnc": "05", "name": "Claro", "percentage": 25},
+    {"other": true, "percentage": 25}
+  ],
+  "cron_schedule": "cron string ou null",
+  "personal_numbers": [array de telefones ou null]
+}
+
+REGRAS:
+- route_mode "qty": cada rota tem "value" = quantidade absoluta de disparos
+- route_mode "pct": cada rota tem "value" = percentual (soma = 100%), e "total_tests" e obrigatorio
+- networks: cada operadora tem "percentage" (soma de todos = 100%)
+- Se o usuario mencionar "outras operadoras" ou quiser cobrir operadoras menores, adicione {"other": true, "percentage": X}
+- Se o usuario disser "todas as rotas", inclua todas. Se disser "Sona" inclua todas as rotas Sona. Mesma logica para fornecedor/tipo.
+- Se nao especificar cron, use null.
+- Se o usuario der quantidades absolutas por rota (ex: "100 da Sona, 120 da Pushfy"), use route_mode "qty".
+- Se o usuario falar em % por rota, use route_mode "pct".
+- As 3 operadoras principais sao Claro (724-05), TIM (724-02), Vivo (724-06). Se o usuario nao especificar distribuicao, use partes iguais entre as mencionadas.
+
+Pedido do usuario: ${prompt}`,
+        },
+      ],
+    });
+
+    const text = msg.content[0].text.trim();
+    const json = JSON.parse(text);
+    res.json(json);
+  } catch (err) {
+    console.error("[AI Campaign]", err.message);
+    res.status(500).json({ error: "Falha ao interpretar. Tente reformular." });
+  }
+});
+
 // Run test now (ad-hoc, uses all routes/networks)
 app.post("/api/run-now", async (req, res) => {
   const { runFullTest } = require("./run-test");
