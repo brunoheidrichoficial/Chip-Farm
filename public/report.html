@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chip Farm - Relatorio</title>
+  <link rel="stylesheet" href="/css/farm.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-title">
+        <span style="font-size:32px">🌾</span>
+        <div>
+          <h1>Chip Farm</h1>
+          <span class="subtitle">SendSpeed Route Testing</span>
+        </div>
+      </div>
+      <nav class="header-nav">
+        <a href="/">Dashboard</a>
+        <a href="/campaign.html">Nova Campanha</a>
+      </nav>
+    </header>
+
+    <!-- Report Summary -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">📊 <span id="reportTitle">Relatorio</span></div>
+        <a href="/" class="btn btn-sm btn-secondary">Voltar</a>
+      </div>
+
+      <div class="cards-grid" id="summaryCards">
+        <div class="card">
+          <div class="card-icon">🌱</div>
+          <div class="card-label">Total de Testes</div>
+          <div class="card-value" id="totalTests">--</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">🌻</div>
+          <div class="card-label">Entrega Real</div>
+          <div class="card-value" id="deliveryRate">--</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">🚫</div>
+          <div class="card-label">Fake DLRs</div>
+          <div class="card-value" id="fakeDlrs">--</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">⏱️</div>
+          <div class="card-label">Latencia Media</div>
+          <div class="card-value" id="avgLatency">--</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scores Table -->
+    <div class="panel" id="scoresPanel">
+      <div class="panel-header">
+        <div class="panel-title">🚜 Scores por Rota x Operadora</div>
+      </div>
+      <div id="scoresContent">
+        <p style="color:var(--text-light)">Carregando...</p>
+      </div>
+    </div>
+
+    <!-- Detailed Results -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">🌾 Resultados Detalhados</div>
+        <button class="btn btn-sm btn-secondary" onclick="toggleDetails()">Expandir/Recolher</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rota</th>
+              <th>Operadora</th>
+              <th>Telefone</th>
+              <th>SendSpeed</th>
+              <th>TelQ</th>
+              <th>Latencia</th>
+              <th>Fake DLR</th>
+            </tr>
+          </thead>
+          <tbody id="resultsTable">
+            <tr><td colspan="7"><p style="color:var(--text-light)">Carregando...</p></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/report.js"></script>
+</body>
+</html>

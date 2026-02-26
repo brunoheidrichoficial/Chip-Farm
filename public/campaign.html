@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chip Farm - Nova Campanha</title>
+  <link rel="stylesheet" href="/css/farm.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-title">
+        <span style="font-size:32px">🌾</span>
+        <div>
+          <h1>Chip Farm</h1>
+          <span class="subtitle">SendSpeed Route Testing</span>
+        </div>
+      </div>
+      <nav class="header-nav">
+        <a href="/">Dashboard</a>
+        <a href="/campaign.html" class="active">Nova Campanha</a>
+      </nav>
+    </header>
+
+    <!-- Campaign Form -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">🌱 <span id="formTitle">Nova Campanha</span></div>
+      </div>
+
+      <form id="campaignForm" onsubmit="saveCampaign(event)">
+        <!-- Name -->
+        <div class="form-group">
+          <label class="form-label">Nome da Campanha</label>
+          <input type="text" id="name" class="form-input" placeholder="Ex: Teste Diario Completo" required>
+        </div>
+
+        <!-- Routes -->
+        <div class="form-group">
+          <label class="form-label">Rotas (selecione as que deseja testar)</label>
+          <div class="checkbox-grid" id="routesGrid">
+            <p style="color:var(--text-light)">Carregando rotas...</p>
+          </div>
+        </div>
+
+        <!-- Networks -->
+        <div class="form-group">
+          <label class="form-label">Operadoras</label>
+          <div class="checkbox-grid" id="networksGrid">
+            <p style="color:var(--text-light)">Carregando operadoras...</p>
+          </div>
+        </div>
+
+        <!-- Tests per combo -->
+        <div class="form-group">
+          <label class="form-label">Testes por combinacao (rota x operadora)</label>
+          <select id="testsPerCombo" class="form-select">
+            <option value="1">1</option>
+            <option value="5">5</option>
+            <option value="10">10</option>
+            <option value="33">33</option>
+          </select>
+        </div>
+
+        <!-- Personal numbers -->
+        <div class="form-group">
+          <label class="form-label">Numeros pessoais para incluir no disparo (opcional)</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="phoneInput" class="form-input" placeholder="+5511999999999" style="flex:1">
+            <button type="button" class="btn btn-secondary" onclick="addPhone()">Adicionar</button>
+          </div>
+          <div class="tags" id="phoneTags"></div>
+        </div>
+
+        <!-- Cron -->
+        <div class="form-group">
+          <label class="form-label">Horario do cron (opcional)</label>
+          <input type="text" id="cronSchedule" class="form-input" placeholder="Ex: 0 7 * * * (todos os dias as 7h)">
+          <div style="margin-top:4px;font-size:12px;color:var(--text-light)">Formato cron: minuto hora dia mes dia-semana</div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:12px;margin-top:24px">
+          <button type="submit" class="btn btn-primary">💾 Salvar Campanha</button>
+          <button type="button" class="btn btn-secondary" onclick="saveAndRun()">🚜 Salvar e Disparar Agora</button>
+          <a href="/" class="btn btn-secondary">Cancelar</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/campaign.js"></script>
+</body>
+</html>

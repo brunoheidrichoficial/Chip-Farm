@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chip Farm - Dashboard</title>
+  <link rel="stylesheet" href="/css/farm.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-title">
+        <span style="font-size:32px">🌾</span>
+        <div>
+          <h1>Chip Farm</h1>
+          <span class="subtitle">SendSpeed Route Testing</span>
+        </div>
+      </div>
+      <nav class="header-nav">
+        <a href="/" class="active">Dashboard</a>
+        <a href="/campaign.html">Nova Campanha</a>
+      </nav>
+    </header>
+
+    <!-- Summary Cards -->
+    <div class="cards-grid" id="cards">
+      <div class="card">
+        <div class="card-icon">🌱</div>
+        <div class="card-label">Ultimo Teste</div>
+        <div class="card-value" id="lastRun">--</div>
+        <div class="card-detail" id="lastRunDetail"></div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌻</div>
+        <div class="card-label">Taxa de Entrega</div>
+        <div class="card-value" id="deliveryRate">--</div>
+        <div class="card-detail" id="deliveryDetail"></div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🚜</div>
+        <div class="card-label">Melhor Rota</div>
+        <div class="card-value" id="bestRoute" style="font-size:18px">--</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">⚠️</div>
+        <div class="card-label">Alertas</div>
+        <div class="card-value" id="alertCount">0</div>
+        <div class="card-detail" id="alertDetail"></div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div style="display:flex;gap:12px;margin-bottom:24px">
+      <a href="/campaign.html" class="btn btn-primary">🌱 Nova Campanha</a>
+      <button class="btn btn-secondary" id="btnRunNow" onclick="runNow()">🚜 Rodar Teste Agora</button>
+    </div>
+
+    <!-- Recent Runs -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">🌾 Testes Recentes</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Data</th>
+              <th>Testes</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="runsTable">
+            <tr><td colspan="5" class="empty-state"><p>Carregando...</p></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Scores by Network (latest run) -->
+    <div class="panel" id="scoresPanel" style="display:none">
+      <div class="panel-header">
+        <div class="panel-title">🌻 Scores por Operadora (Ultimo Teste)</div>
+      </div>
+      <div id="scoresContent"></div>
+    </div>
+
+    <!-- Campaigns -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">📋 Campanhas Salvas</div>
+        <a href="/campaign.html" class="btn btn-sm btn-secondary">+ Nova</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Rotas</th>
+              <th>Operadoras</th>
+              <th>Testes/Combo</th>
+              <th>Cron</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="campaignsTable">
+            <tr><td colspan="6" class="empty-state"><p>Nenhuma campanha criada</p></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>
