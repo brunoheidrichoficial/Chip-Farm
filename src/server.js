@@ -9,6 +9,14 @@ const telq = require("./telq");
 const app = express();
 app.use(express.json());
 
+// Debug: log EVERY incoming request
+app.use((req, res, next) => {
+  if (!req.url.startsWith("/api/") && !req.url.startsWith("/js/") && !req.url.startsWith("/css/") && req.url !== "/" && req.url !== "/health" && !req.url.endsWith(".html") && !req.url.endsWith(".ico")) {
+    console.log(`[REQUEST] ${req.method} ${req.url} headers:`, JSON.stringify(req.headers["content-type"] || "none"), "body:", JSON.stringify(req.body));
+  }
+  next();
+});
+
 // Serve static files
 app.use(express.static(path.join(__dirname, "../public")));
 
@@ -17,6 +25,7 @@ app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 // ─── SendSpeed callback (preserved from callback-server.js) ───
 app.post("/callback/sendspeed", (req, res) => {
+  console.log(`[SendSpeed Callback] RAW BODY:`, JSON.stringify(req.body));
   const callbacks = Array.isArray(req.body) ? req.body : [req.body];
   for (const cb of callbacks) {
     if (cb.messageId && cb.status) {
@@ -24,6 +33,12 @@ app.post("/callback/sendspeed", (req, res) => {
       db.updateSendspeedCallback(cb.messageId, cb.status);
     }
   }
+  res.json({ ok: true });
+});
+
+// Catch-all: log ANY request to /callback/* (GET, POST, PUT) pra debug
+app.all("/callback/*", (req, res) => {
+  console.log(`[Callback Debug] ${req.method} ${req.url} body:`, JSON.stringify(req.body), "query:", JSON.stringify(req.query));
   res.json({ ok: true });
 });
 
