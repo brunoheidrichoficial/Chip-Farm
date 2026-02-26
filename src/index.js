@@ -13,7 +13,9 @@ async function main() {
   // Start callback server
   await startServer();
 
-  // Schedule daily test
+  // Cron desabilitado — aguardando mais testes antes de ativar disparos automaticos
+  // Para reativar: descomentar o bloco abaixo
+  /*
   cron.schedule(config.cronSchedule, async () => {
     console.log(`\n[Cron] Triggered at ${new Date().toISOString()}`);
     try {
@@ -23,12 +25,10 @@ async function main() {
       await telegram.sendMessage(`❌ Teste diario falhou:\n${err.message}`);
     }
   });
+  */
 
-  console.log(`[Scheduler] Cron scheduled: "${config.cronSchedule}"`);
-  console.log("[Scheduler] Waiting for next trigger... (or run 'npm run test:once' to test now)\n");
-
-  // Notify on Telegram
-  await telegram.sendMessage("✅ Chip Farm online. Cron agendado.");
+  console.log(`[Scheduler] Cron DESABILITADO (modo manual)`);
+  console.log("[Scheduler] Disparos somente via dashboard ou API\n");
 }
 
 main().catch((err) => {
