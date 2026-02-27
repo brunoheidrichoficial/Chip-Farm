@@ -33,13 +33,9 @@ app.post("/callback/sendspeed", (req, res) => {
       db.updateSendspeedCallback(cb.messageId, cb.status);
     }
   }
-  res.json({ ok: true });
-});
-
-// Catch-all: log ANY request to /callback/* (GET, POST, PUT) pra debug
-app.all("/callback/*", (req, res) => {
-  console.log(`[Callback Debug] ${req.method} ${req.url} body:`, JSON.stringify(req.body), "query:", JSON.stringify(req.query));
-  res.json({ ok: true });
+  // Responder no formato que a SendSpeed espera
+  const first = callbacks[0];
+  res.json({ messageId: first?.messageId || "", message: "OK", status: 200 });
 });
 
 // ─── API routes ───
