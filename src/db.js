@@ -191,7 +191,8 @@ function calculateScores(runId) {
     const fakeDlrRate = total > 0 ? fakeDlrs / total : 0;
 
     // Score: delivery_rate * 70 + (1 - fake_dlr_rate) * 20 + latency_score * 10
-    const latencyScore = avgLatency != null ? Math.max(0, 1 - avgLatency / 10) : 0.5;
+    // Latency scale: 0s = 1.0 (best), 300s = 0 (worst) — realistic SMS range
+    const latencyScore = avgLatency != null ? Math.max(0, 1 - avgLatency / 300) : 0.5;
     const score = Math.round((deliveryRate * 70 + (1 - fakeDlrRate) * 20 + latencyScore * 10) * 100) / 100;
 
     const entry = {

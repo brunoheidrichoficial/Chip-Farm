@@ -36,6 +36,17 @@ function formatReport(scores, runResults, runId) {
   const overallRate = totalTests > 0 ? ((delivered / totalTests) * 100).toFixed(1) : "0";
   const fakeDlrs = runResults.filter((r) => r.fake_dlr === 1).length;
 
+  // Compute SendSpeed callback stats per route/network
+  const cbStats = {};
+  for (const r of runResults) {
+    const key = `${r.route_id}__${r.network_name}`;
+    if (!cbStats[key]) cbStats[key] = { total: 0, delivered: 0, failed: 0, pending: 0 };
+    cbStats[key].total++;
+    if (r.sendspeed_status === "delivered") cbStats[key].delivered++;
+    else if (r.sendspeed_status === "failed" || r.sendspeed_status === "undelivered" || r.sendspeed_status === "invalid") cbStats[key].failed++;
+    else cbStats[key].pending++;
+  }
+
   let msg = `<b>RELATORIO DIARIO - ${now}</b>\n`;
   msg += `<b>Run #${runId}</b>\n\n`;
   msg += `Testes: ${totalTests} | Entrega real: ${overallRate}% | Fake DLRs: ${fakeDlrs}\n`;
@@ -55,17 +66,26 @@ function formatReport(scores, runResults, runId) {
     for (const s of sorted) {
       const icon = s.deliveryRate >= 95 ? "🟢" : s.deliveryRate >= 80 ? "🟡" : "🔴";
       const latency = s.avgLatency != null ? `${s.avgLatency}s` : "N/A";
-      const fakeDlr = s.fakeDlrRate > 0 ? ` | FakeDLR: ${s.fakeDlrRate}%` : "";
-      msg += `${icon} ${s.routeName}: ${s.deliveryRate}% | ${latency}${fakeDlr} | Score: ${s.score}\n`;
+
+      // SendSpeed callback info
+      const cb = cbStats[`${s.routeId}__${s.networkName}`];
+      const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : null;
+      const cbLabel = cbRate != null ? ` | CB: ${cbRate}%` : "";
+      const fakeDlrFlag = s.fakeDlrRate > 0 ? ` | FakeDLR: ${s.fakeDlrRate}%` : "";
+
+      msg += `${icon} ${s.routeName}: ${s.deliveryRate}% | ${latency}${cbLabel}${fakeDlrFlag} | Score: ${s.score}\n`;
     }
     msg += "\n";
   }
 
-  // Best route per network
+  // Best route per network (score already factors delivery + latency + fake DLRs)
   msg += `<b>RECOMENDACAO</b>\n`;
   for (const [network, networkScores] of Object.entries(byNetwork)) {
     const best = networkScores.sort((a, b) => b.score - a.score)[0];
-    if (best) msg += `→ ${network}: usar <b>${best.routeName}</b> (${best.deliveryRate}%)\n`;
+    if (best) {
+      const latency = best.avgLatency != null ? ` | ${best.avgLatency}s` : "";
+      msg += `→ ${network}: usar <b>${best.routeName}</b> (${best.deliveryRate}%${latency})\n`;
+    }
   }
 
   // Alerts
@@ -73,6 +93,15 @@ function formatReport(scores, runResults, runId) {
   for (const s of scores) {
     if (s.deliveryRate < 80) alerts.push(`${s.routeName} para ${s.networkName}: apenas ${s.deliveryRate}% entrega`);
     if (s.fakeDlrRate > 5) alerts.push(`${s.routeName} para ${s.networkName}: ${s.fakeDlrRate}% fake DLR`);
+
+    // Alert for callback vs real delivery mismatch
+    const cb = cbStats[`${s.routeId}__${s.networkName}`];
+    if (cb) {
+      const cbRate = Math.round((cb.delivered / cb.total) * 10000) / 100;
+      if (cbRate >= 95 && s.deliveryRate < 80) {
+        alerts.push(`${s.routeName} para ${s.networkName}: CB diz ${cbRate}% mas entrega real ${s.deliveryRate}%`);
+      }
+    }
   }
 
   if (alerts.length) {

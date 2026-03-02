@@ -3,6 +3,7 @@ const telq = require("./telq");
 const sendspeed = require("./sendspeed");
 const db = require("./db");
 const telegram = require("./telegram");
+const sheets = require("./sheets");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -336,6 +337,13 @@ async function runFullTest(campaignConfig) {
   // 7. Send report via Telegram
   const report = telegram.formatReport(scores, results, runId);
   await telegram.sendMessage(report);
+
+  // 8. Push to Google Sheets
+  try {
+    await sheets.pushResults(scores, results, runId);
+  } catch (err) {
+    console.error("[Test] Sheets push failed:", err.message);
+  }
 
   const duration = ((Date.now() - startTime.getTime()) / 1000 / 60).toFixed(1);
   console.log(`\n[Test] Run #${runId} complete. ${testCount} tests in ${duration} min.`);

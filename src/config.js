@@ -20,6 +20,11 @@ const config = {
     apiKey: process.env.ANTHROPIC_API_KEY,
   },
 
+  sheets: {
+    credentials: process.env.GOOGLE_SHEETS_CREDENTIALS || null,
+    spreadsheetId: process.env.GOOGLE_SHEET_ID || null,
+  },
+
   // Server for receiving SendSpeed callbacks
   callbackServer: {
     port: parseInt(process.env.CALLBACK_PORT || "3700"),
