@@ -228,4 +228,111 @@ async function pushResults(scores, runResults, runId) {
   }
 }
 
-module.exports = { pushResults };
+// ─── Formatting (Executive Navy theme) ───
+
+const COLORS = {
+  headerBg:   { red: 0.11, green: 0.31, blue: 0.50 },
+  white:      { red: 1.0,  green: 1.0,  blue: 1.0 },
+  bodyLight:  { red: 0.96, green: 0.96, blue: 0.96 },
+  textDark:   { red: 0.20, green: 0.20, blue: 0.20 },
+  greenBg:    { red: 0.85, green: 0.92, blue: 0.83 },
+  greenText:  { red: 0.15, green: 0.31, blue: 0.07 },
+  yellowBg:   { red: 1.0,  green: 0.95, blue: 0.80 },
+  yellowText: { red: 0.50, green: 0.38, blue: 0.0 },
+  redBg:      { red: 0.96, green: 0.80, blue: 0.80 },
+  redText:    { red: 0.40, green: 0.0,  blue: 0.0 },
+  accentBlue: { red: 0.0,  green: 0.57, blue: 0.84 },
+};
+const FMT_END = 200;
+
+function _buildSheetFormat(sheetId, endCol, colWidths, centerCols, condRules) {
+  const K = COLORS, E = FMT_END, r = [];
+  r.push({ repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: E, startColumnIndex: 0, endColumnIndex: endCol }, cell: { userEnteredFormat: { backgroundColor: K.white, textFormat: { foregroundColor: K.textDark, fontSize: 10, fontFamily: "Roboto", bold: false }, horizontalAlignment: "LEFT", verticalAlignment: "MIDDLE", padding: { top: 4, bottom: 4, left: 6, right: 6 } } }, fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,padding)" } });
+  r.push({ repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: endCol }, cell: { userEnteredFormat: { backgroundColor: K.headerBg, textFormat: { foregroundColor: K.white, fontSize: 11, bold: true, fontFamily: "Roboto" }, horizontalAlignment: "CENTER", verticalAlignment: "MIDDLE", padding: { top: 6, bottom: 6, left: 8, right: 8 } } }, fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,padding)" } });
+  r.push({ updateDimensionProperties: { range: { sheetId, dimension: "ROWS", startIndex: 0, endIndex: 1 }, properties: { pixelSize: 40 }, fields: "pixelSize" } });
+  r.push({ updateDimensionProperties: { range: { sheetId, dimension: "ROWS", startIndex: 1, endIndex: E }, properties: { pixelSize: 30 }, fields: "pixelSize" } });
+  r.push({ updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } });
+  r.push({ updateBorders: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: endCol }, bottom: { style: "SOLID_MEDIUM", color: K.accentBlue } } });
+  for (const [col, size] of colWidths) r.push({ updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: col, endIndex: col + 1 }, properties: { pixelSize: size }, fields: "pixelSize" } });
+  for (const col of centerCols) r.push({ repeatCell: { range: { sheetId, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }, cell: { userEnteredFormat: { horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat.horizontalAlignment" } });
+  r.push({ addConditionalFormatRule: { rule: { ranges: [{ sheetId, startRowIndex: 1, endRowIndex: E, startColumnIndex: 0, endColumnIndex: endCol }], booleanRule: { condition: { type: "CUSTOM_FORMULA", values: [{ userEnteredValue: "=ISEVEN(ROW())" }] }, format: { backgroundColor: K.bodyLight } } }, index: 0 } });
+  r.push(...condRules);
+  return r;
+}
+
+function _condHigh(sid, col, g, y) {
+  const K = COLORS, E = FMT_END;
+  return [
+    { addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], booleanRule: { condition: { type: "NUMBER_GREATER_THAN_EQ", values: [{ userEnteredValue: String(g) }] }, format: { backgroundColor: K.greenBg, textFormat: { foregroundColor: K.greenText, bold: true } } } }, index: 0 } },
+    { addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], booleanRule: { condition: { type: "NUMBER_GREATER_THAN_EQ", values: [{ userEnteredValue: String(y) }] }, format: { backgroundColor: K.yellowBg, textFormat: { foregroundColor: K.yellowText, bold: true } } } }, index: 1 } },
+    { addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], booleanRule: { condition: { type: "NUMBER_LESS", values: [{ userEnteredValue: String(y) }] }, format: { backgroundColor: K.redBg, textFormat: { foregroundColor: K.redText, bold: true } } } }, index: 2 } },
+  ];
+}
+
+function _condLow(sid, col, g, y) {
+  const K = COLORS, E = FMT_END;
+  return [
+    { addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], booleanRule: { condition: { type: "NUMBER_LESS_THAN_EQ", values: [{ userEnteredValue: String(g) }] }, format: { backgroundColor: K.greenBg, textFormat: { foregroundColor: K.greenText, bold: true } } } }, index: 0 } },
+    { addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], booleanRule: { condition: { type: "NUMBER_LESS_THAN_EQ", values: [{ userEnteredValue: String(y) }] }, format: { backgroundColor: K.yellowBg, textFormat: { foregroundColor: K.yellowText, bold: true } } } }, index: 1 } },
+    { addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], booleanRule: { condition: { type: "NUMBER_GREATER", values: [{ userEnteredValue: String(y) }] }, format: { backgroundColor: K.redBg, textFormat: { foregroundColor: K.redText, bold: true } } } }, index: 2 } },
+  ];
+}
+
+function _condGradient(sid, col) {
+  const K = COLORS, E = FMT_END;
+  return [{ addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], gradientRule: { minpoint: { color: K.redBg, type: "NUMBER", value: "60" }, midpoint: { color: K.yellowBg, type: "NUMBER", value: "85" }, maxpoint: { color: K.greenBg, type: "NUMBER", value: "100" } } }, index: 0 } }];
+}
+
+function _condPodium(sid, col) {
+  const E = FMT_END;
+  return [
+    { addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], booleanRule: { condition: { type: "NUMBER_EQ", values: [{ userEnteredValue: "1" }] }, format: { backgroundColor: { red: 1, green: 0.95, blue: 0.7 }, textFormat: { foregroundColor: { red: 0.55, green: 0.43, blue: 0 }, bold: true } } } }, index: 0 } },
+    { addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], booleanRule: { condition: { type: "NUMBER_EQ", values: [{ userEnteredValue: "2" }] }, format: { backgroundColor: { red: 0.9, green: 0.9, blue: 0.92 }, textFormat: { foregroundColor: { red: 0.35, green: 0.35, blue: 0.4 }, bold: true } } } }, index: 1 } },
+    { addConditionalFormatRule: { rule: { ranges: [{ sheetId: sid, startRowIndex: 1, endRowIndex: E, startColumnIndex: col, endColumnIndex: col + 1 }], booleanRule: { condition: { type: "NUMBER_EQ", values: [{ userEnteredValue: "3" }] }, format: { backgroundColor: { red: 0.96, green: 0.87, blue: 0.75 }, textFormat: { foregroundColor: { red: 0.5, green: 0.31, blue: 0.12 }, bold: true } } } }, index: 2 } },
+  ];
+}
+
+async function applyFormatting() {
+  const sheets = getSheets();
+  if (!sheets) return;
+  const spreadsheetId = config.sheets.spreadsheetId;
+  if (!spreadsheetId) return;
+
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets(properties,conditionalFormats)" });
+    const sm = {};
+    meta.data.sheets.forEach(s => { sm[s.properties.title] = s.properties.sheetId; });
+
+    // Clear all existing conditional rules
+    const clearReqs = [];
+    for (const s of meta.data.sheets) {
+      if (s.conditionalFormats) {
+        for (let i = s.conditionalFormats.length - 1; i >= 0; i--) {
+          clearReqs.push({ deleteConditionalFormatRule: { sheetId: s.properties.sheetId, index: i } });
+        }
+      }
+    }
+    if (clearReqs.length) {
+      await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: clearReqs } });
+    }
+
+    const R = sm["Resultados"], E = sm["Recomendacoes"], K = sm["Ranking Geral"];
+    if (R === undefined || E === undefined || K === undefined) return;
+
+    const allReqs = [
+      ..._buildSheetFormat(R, 11, [[0,100],[1,55],[2,180],[3,110],[4,100],[5,65],[6,120],[7,120],[8,100],[9,135],[10,80]], [1,5,6,7,8,9,10],
+        [..._condHigh(R,6,95,80), ..._condHigh(R,7,95,80), ..._condLow(R,8,0,5), ..._condLow(R,9,60,120), ..._condGradient(R,10)]),
+      ..._buildSheetFormat(E, 9, [[0,100],[1,55],[2,100],[3,185],[4,110],[5,100],[6,105],[7,80],[8,130]], [1,5,6,7,8],
+        [..._condHigh(E,5,95,80), ..._condLow(E,6,60,120), ..._condGradient(E,7), ..._condHigh(E,8,95,80)]),
+      ..._buildSheetFormat(K, 11, [[0,100],[1,55],[2,70],[3,185],[4,110],[5,105],[6,120],[7,130],[8,95],[9,115],[10,200]], [1,2,5,6,7,8,9],
+        [..._condPodium(K,2), ..._condGradient(K,5), ..._condHigh(K,6,95,80), ..._condLow(K,7,60,120), ..._condLow(K,8,0,5), ..._condHigh(K,9,95,80)]),
+    ];
+
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: allReqs } });
+    console.log(`[Sheets] Formatacao aplicada (${allReqs.length} ops)`);
+  } catch (err) {
+    console.error("[Sheets] Erro ao aplicar formatacao:", err.message);
+  }
+}
+
+module.exports = { pushResults, applyFormatting };
