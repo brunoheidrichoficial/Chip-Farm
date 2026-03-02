@@ -87,6 +87,12 @@ const RECOMENDACOES_HEADERS = [
   "Entrega %", "Latencia (s)", "Score", "CB SendSpeed %",
 ];
 
+const RANKING_HEADERS = [
+  "Data", "Run", "Posicao", "Rota", "Fornecedor",
+  "Score Geral", "Entrega Media %", "Latencia Media (s)",
+  "Fake DLR %", "CB SendSpeed %", "Operadoras Testadas",
+];
+
 async function pushResults(scores, runResults, runId) {
   const sheets = getSheets();
   if (!sheets) {
@@ -114,6 +120,7 @@ async function pushResults(scores, runResults, runId) {
   // Ensure tabs + headers
   await ensureHeaders("Resultados", RESULTS_HEADERS);
   await ensureHeaders("Recomendacoes", RECOMENDACOES_HEADERS);
+  await ensureHeaders("Ranking Geral", RANKING_HEADERS);
 
   // Build rows for Resultados
   const resultRows = scores.map((s) => {
@@ -146,6 +153,40 @@ async function pushResults(scores, runResults, runId) {
     }
   }
 
+  // Build rows for Ranking Geral (aggregate per route across all networks)
+  const byRoute = {};
+  for (const s of scores) {
+    if (!byRoute[s.routeId]) byRoute[s.routeId] = { routeName: s.routeName, supplier: s.supplier, scores: [], deliveries: [], latencies: [], fakeDlrs: [], cbDelivered: 0, cbTotal: 0, networks: [] };
+    const r = byRoute[s.routeId];
+    r.scores.push(s.score);
+    r.deliveries.push(s.deliveryRate);
+    if (s.avgLatency != null) r.latencies.push(s.avgLatency);
+    r.fakeDlrs.push(s.fakeDlrRate);
+    r.networks.push(s.networkName);
+    const cb = cbStats[`${s.routeId}__${s.networkName}`];
+    if (cb) { r.cbDelivered += cb.delivered; r.cbTotal += cb.total; }
+  }
+
+  const rankingEntries = Object.values(byRoute).map(r => {
+    const avg = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 100) / 100 : 0;
+    return {
+      routeName: r.routeName,
+      supplier: r.supplier,
+      scoreGeral: avg(r.scores),
+      entregaMedia: avg(r.deliveries),
+      latenciaMedia: r.latencies.length ? avg(r.latencies) : "",
+      fakeDlr: avg(r.fakeDlrs),
+      cbRate: r.cbTotal > 0 ? Math.round((r.cbDelivered / r.cbTotal) * 10000) / 100 : "",
+      networks: r.networks.join(", "),
+    };
+  }).sort((a, b) => b.scoreGeral - a.scoreGeral);
+
+  const rankingRows = rankingEntries.map((r, i) => [
+    now, runId, i + 1, r.routeName, r.supplier,
+    r.scoreGeral, r.entregaMedia, r.latenciaMedia,
+    r.fakeDlr, r.cbRate, r.networks,
+  ]);
+
   // Append to sheets
   try {
     await sheets.spreadsheets.values.append({
@@ -171,6 +212,19 @@ async function pushResults(scores, runResults, runId) {
     console.log(`[Sheets] ${recoRows.length} linhas adicionadas em Recomendacoes`);
   } catch (err) {
     console.error("[Sheets] Erro ao gravar Recomendacoes:", err.message);
+  }
+
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: "Ranking Geral!A2",
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: rankingRows },
+    });
+    console.log(`[Sheets] ${rankingRows.length} linhas adicionadas em Ranking Geral`);
+  } catch (err) {
+    console.error("[Sheets] Erro ao gravar Ranking Geral:", err.message);
   }
 }
 
