@@ -4,6 +4,7 @@ const sendspeed = require("./sendspeed");
 const db = require("./db");
 const telegram = require("./telegram");
 const sheets = require("./sheets");
+const sendspeedDb = require("./sendspeed-db");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -273,8 +274,11 @@ async function runFullTest(campaignConfig) {
     await telegram.sendMessage(`🚀 Teste iniciado: ${testCount} SMS enviados por ${testRoutes.length} rotas x ${networksToTest.length} operadoras. Aguardando resultados...`);
   }
 
-  // 4. Poll TelQ for results (same for both formats)
+  // 4. Poll TelQ for results + fetch SendSpeed callbacks periodically
   console.log(`[Test] Polling TelQ for results (max ${config.test.maxPollAttempts} attempts)...`);
+
+  let lastSheetsPush = 0;
+  const SHEETS_PUSH_INTERVAL = 120000; // push parcial a cada 2 min
 
   for (let attempt = 1; attempt <= config.test.maxPollAttempts; attempt++) {
     await sleep(config.test.pollIntervalMs);
@@ -305,13 +309,37 @@ async function runFullTest(campaignConfig) {
       }
     }
 
+    // Fetch SendSpeed callbacks from MySQL periodically
+    if (attempt % 4 === 0) {
+      try {
+        await sendspeedDb.fetchCallbacks(runId);
+      } catch (err) {
+        console.warn(`[Test] SendSpeed DB fetch failed: ${err.message}`);
+      }
+    }
+
+    // Push parcial to Sheets every ~2 min
+    const now = Date.now();
+    if (now - lastSheetsPush >= SHEETS_PUSH_INTERVAL) {
+      try {
+        const partialResults = db.getRunResults(runId);
+        const partialDelivered = partialResults.filter(r => r.telq_status === "POSITIVE").length;
+        const partialCb = partialResults.filter(r => r.sendspeed_status).length;
+        console.log(`[Test] Sheets parcial: ${partialDelivered} delivered, ${partialCb} callbacks`);
+        // Will do full push at end — parcial just logs progress
+        lastSheetsPush = now;
+      } catch (err) {
+        // Non-critical
+      }
+    }
+
     const stillPending = pending.length - resolved;
     console.log(`[Test] Poll ${attempt}/${config.test.maxPollAttempts}: ${resolved} resolved, ${stillPending} pending`);
 
     if (stillPending === 0) break;
   }
 
-  // 5. Mark remaining as NOT_DELIVERED and detect fake DLRs
+  // 5. Mark remaining as NOT_DELIVERED
   const finalPending = db.getPendingTelqTests(runId);
   for (const p of finalPending) {
     db.updateTelqResult(p.telq_test_id, {
@@ -325,20 +353,28 @@ async function runFullTest(campaignConfig) {
 
   await sleep(5000);
 
+  // 6. Final fetch of SendSpeed callbacks from MySQL
+  try {
+    await sendspeedDb.fetchCallbacks(runId);
+  } catch (err) {
+    console.warn(`[Test] Final SendSpeed DB fetch failed: ${err.message}`);
+  }
+
+  // 7. Detect fake DLRs (now with real callback data)
   db.markFakeDlrs(runId);
 
   const results = db.getRunResults(runId);
   const testCount = results.length;
   db.finishRun(runId, testCount);
 
-  // 6. Calculate scores
+  // 8. Calculate scores
   const scores = db.calculateScores(runId);
 
-  // 7. Send report via Telegram
+  // 9. Send report via Telegram
   const report = telegram.formatReport(scores, results, runId);
   await telegram.sendMessage(report);
 
-  // 8. Push to Google Sheets
+  // 10. Push final to Google Sheets
   try {
     await sheets.pushResults(scores, results, runId);
   } catch (err) {

@@ -25,6 +25,14 @@ const config = {
     spreadsheetId: process.env.GOOGLE_SHEET_ID || null,
   },
 
+  sendspeedDb: {
+    host: process.env.SENDSPEED_DB_HOST || null,
+    port: parseInt(process.env.SENDSPEED_DB_PORT || "25060"),
+    user: process.env.SENDSPEED_DB_USER || null,
+    password: process.env.SENDSPEED_DB_PASSWORD || null,
+    database: process.env.SENDSPEED_DB_DATABASE || "defaultdb",
+  },
+
   // Server for receiving SendSpeed callbacks
   callbackServer: {
     port: parseInt(process.env.CALLBACK_PORT || "3700"),
