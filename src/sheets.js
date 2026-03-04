@@ -1,5 +1,5 @@
 const { google } = require("googleapis");
-const { config } = require("./config");
+const { config, TIERS, getRouteTier } = require("./config");
 
 let sheetsClient = null;
 
@@ -35,6 +35,7 @@ function getSheets() {
   return sheetsClient;
 }
 
+// Only write headers if the sheet is empty (no existing header row)
 async function ensureHeaders(sheetName, headers) {
   const sheets = getSheets();
   if (!sheets) return;
@@ -57,24 +58,27 @@ async function ensureHeaders(sheetName, headers) {
     return;
   }
 
-  // Check if headers exist (row 1)
+  // Only write headers if row 1 is empty
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${sheetName}!A1:Z1`,
+      range: `'${sheetName}'!A1:A1`,
     });
-    if (!res.data.values || !res.data.values.length) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${sheetName}!A1`,
-        valueInputOption: "RAW",
-        requestBody: { values: [headers] },
-      });
+    if (res.data.values && res.data.values.length > 0 && res.data.values[0].length > 0) {
+      return; // headers already present
     }
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${sheetName}'!A1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [headers] },
+    });
   } catch (err) {
     console.error(`[Sheets] Error setting headers for "${sheetName}":`, err.message);
   }
 }
+
+// ─── Headers (NO Tier column — tier is in the tab name) ───
 
 const RESULTS_HEADERS = [
   "Data", "Run", "Rota", "Fornecedor", "Operadora",
@@ -92,6 +96,100 @@ const RANKING_HEADERS = [
   "Score Geral", "Entrega Media %", "Latencia Media (s)",
   "Fake DLR %", "CB SendSpeed %", "Operadoras Testadas",
 ];
+
+// Helper: append rows to a sheet tab (ensures headers + appends data)
+async function appendToSheet(sheetName, headers, rows) {
+  if (!rows.length) return;
+  const sheets = getSheets();
+  if (!sheets) return;
+  const spreadsheetId = config.sheets.spreadsheetId;
+
+  await ensureHeaders(sheetName, headers);
+
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `'${sheetName}'!A2`,
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: rows },
+    });
+    console.log(`[Sheets] ${rows.length} linhas adicionadas em ${sheetName}`);
+  } catch (err) {
+    console.error(`[Sheets] Erro ao gravar ${sheetName}:`, err.message);
+  }
+}
+
+// Build result/reco/ranking rows from a set of scores (already filtered by tier)
+// NO Tier column in the rows — tier is conveyed by the tab name
+function buildSheetData(scores, cbStats, runId, now) {
+  // Result rows (11 cols)
+  const resultRows = scores.map((s) => {
+    const cb = cbStats[`${s.routeId}__${s.networkName}`];
+    const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : "";
+    return [
+      now, runId, s.routeName, s.supplier, s.networkName,
+      s.sampleSize, s.deliveryRate, cbRate, s.fakeDlrRate,
+      s.avgLatency != null ? s.avgLatency : "", s.score,
+    ];
+  });
+
+  // Reco rows — best route per network (9 cols)
+  const byNetwork = {};
+  for (const s of scores) {
+    if (!byNetwork[s.networkName]) byNetwork[s.networkName] = [];
+    byNetwork[s.networkName].push(s);
+  }
+
+  const recoRows = [];
+  for (const [network, networkScores] of Object.entries(byNetwork)) {
+    const best = networkScores.sort((a, b) => b.score - a.score)[0];
+    if (best) {
+      const cb = cbStats[`${best.routeId}__${best.networkName}`];
+      const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : "";
+      recoRows.push([
+        now, runId, network, best.routeName, best.supplier,
+        best.deliveryRate, best.avgLatency != null ? best.avgLatency : "", best.score, cbRate,
+      ]);
+    }
+  }
+
+  // Ranking rows — aggregate per route (11 cols)
+  const byRoute = {};
+  for (const s of scores) {
+    if (!byRoute[s.routeId]) byRoute[s.routeId] = { routeName: s.routeName, supplier: s.supplier, scores: [], deliveries: [], latencies: [], fakeDlrs: [], cbDelivered: 0, cbTotal: 0, networks: [] };
+    const r = byRoute[s.routeId];
+    r.scores.push(s.score);
+    r.deliveries.push(s.deliveryRate);
+    if (s.avgLatency != null) r.latencies.push(s.avgLatency);
+    r.fakeDlrs.push(s.fakeDlrRate);
+    r.networks.push(s.networkName);
+    const cb = cbStats[`${s.routeId}__${s.networkName}`];
+    if (cb) { r.cbDelivered += cb.delivered; r.cbTotal += cb.total; }
+  }
+
+  const rankingEntries = Object.values(byRoute).map(r => {
+    const avg = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 100) / 100 : 0;
+    return {
+      routeName: r.routeName, supplier: r.supplier,
+      scoreGeral: avg(r.scores), entregaMedia: avg(r.deliveries),
+      latenciaMedia: r.latencies.length ? avg(r.latencies) : "",
+      fakeDlr: avg(r.fakeDlrs),
+      cbRate: r.cbTotal > 0 ? Math.round((r.cbDelivered / r.cbTotal) * 10000) / 100 : "",
+      networks: r.networks.join(", "),
+    };
+  }).sort((a, b) => b.scoreGeral - a.scoreGeral);
+
+  const rankingRows = rankingEntries.map((r, i) => [
+    now, runId, i + 1, r.routeName, r.supplier,
+    r.scoreGeral, r.entregaMedia, r.latenciaMedia,
+    r.fakeDlr, r.cbRate, r.networks,
+  ]);
+
+  return { resultRows, recoRows, rankingRows };
+}
+
+// ─── Push results: ONLY per-tier tabs (no global tabs) ───
 
 async function pushResults(scores, runResults, runId) {
   const sheets = getSheets();
@@ -117,114 +215,113 @@ async function pushResults(scores, runResults, runId) {
     if (r.sendspeed_status === "delivered") cbStats[key].delivered++;
   }
 
-  // Ensure tabs + headers
-  await ensureHeaders("Resultados", RESULTS_HEADERS);
-  await ensureHeaders("Recomendacoes", RECOMENDACOES_HEADERS);
-  await ensureHeaders("Ranking Geral", RANKING_HEADERS);
+  // Group scores by tier
+  const byTier = {};
+  for (const s of scores) {
+    const tier = s.tier || getRouteTier(s.routeId) || null;
+    if (!tier) continue;
+    if (!byTier[tier]) byTier[tier] = [];
+    byTier[tier].push(s);
+  }
 
-  // Build rows for Resultados
-  const resultRows = scores.map((s) => {
-    const cb = cbStats[`${s.routeId}__${s.networkName}`];
-    const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : "";
-    return [
-      now, runId, s.routeName, s.supplier, s.networkName,
-      s.sampleSize, s.deliveryRate, cbRate, s.fakeDlrRate,
-      s.avgLatency != null ? s.avgLatency : "", s.score,
-    ];
+  // Push to per-tier tabs only
+  for (const tier of TIERS) {
+    const tierScores = byTier[tier];
+    if (!tierScores || !tierScores.length) continue;
+
+    const data = buildSheetData(tierScores, cbStats, runId, now);
+    await appendToSheet(`Resultados ${tier}`, RESULTS_HEADERS, data.resultRows);
+    await appendToSheet(`Recomendacoes ${tier}`, RECOMENDACOES_HEADERS, data.recoRows);
+    await appendToSheet(`Ranking ${tier}`, RANKING_HEADERS, data.rankingRows);
+  }
+}
+
+// ─── Rebuild: wipe all sheets and reconstruct from DB ───
+
+async function rebuildAllSheets() {
+  const sheets = getSheets();
+  if (!sheets) {
+    console.log("[Sheets] Desabilitado (sem credenciais)");
+    return;
+  }
+
+  const spreadsheetId = config.sheets.spreadsheetId;
+  if (!spreadsheetId) {
+    console.log("[Sheets] Desabilitado (sem GOOGLE_SHEET_ID)");
+    return;
+  }
+
+  const db = require("./db");
+
+  // 1. Delete all existing tabs (except first — Sheets requires at least one)
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const existingSheets = meta.data.sheets;
+
+  // Create a temp sheet first so we can delete everything else
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{ addSheet: { properties: { title: "_temp" } } }],
+    },
   });
 
-  // Build rows for Recomendacoes (best per network)
-  const byNetwork = {};
-  for (const s of scores) {
-    if (!byNetwork[s.networkName]) byNetwork[s.networkName] = [];
-    byNetwork[s.networkName].push(s);
+  // Delete all original sheets
+  const deleteReqs = existingSheets.map(s => ({
+    deleteSheet: { sheetId: s.properties.sheetId },
+  }));
+  if (deleteReqs.length) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: deleteReqs },
+    });
   }
 
-  const recoRows = [];
-  for (const [network, networkScores] of Object.entries(byNetwork)) {
-    const best = networkScores.sort((a, b) => b.score - a.score)[0];
-    if (best) {
-      const cb = cbStats[`${best.routeId}__${best.networkName}`];
-      const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : "";
-      recoRows.push([
-        now, runId, network, best.routeName, best.supplier,
-        best.deliveryRate, best.avgLatency != null ? best.avgLatency : "", best.score, cbRate,
-      ]);
+  console.log(`[Sheets] Limpas ${existingSheets.length} abas existentes`);
+
+  // 2. Get all runs that have scores
+  const runs = db.getTestRuns(1000); // get up to 1000 runs
+  let rebuiltRuns = 0;
+
+  for (const run of runs.reverse()) { // oldest first
+    const scores = db.getRunScores(run.id);
+    if (!scores.length) continue;
+
+    const results = db.getRunResults(run.id);
+
+    // Map DB score rows to the format pushResults/buildSheetData expects
+    const mappedScores = scores.map(s => ({
+      routeId: s.route_id,
+      routeName: s.route_name,
+      supplier: s.supplier,
+      networkName: s.network_name,
+      deliveryRate: s.delivery_rate,
+      avgLatency: s.avg_latency,
+      fakeDlrRate: s.fake_dlr_rate,
+      score: s.score,
+      sampleSize: s.sample_size,
+      tier: s.tier || getRouteTier(s.route_id) || null,
+    }));
+
+    await pushResults(mappedScores, results, run.id);
+    rebuiltRuns++;
+  }
+
+  console.log(`[Sheets] Rebuild concluido: ${rebuiltRuns} runs processados`);
+
+  // 3. Delete _temp sheet
+  try {
+    const meta2 = await sheets.spreadsheets.get({ spreadsheetId });
+    const tempSheet = meta2.data.sheets.find(s => s.properties.title === "_temp");
+    if (tempSheet) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{ deleteSheet: { sheetId: tempSheet.properties.sheetId } }],
+        },
+      });
     }
-  }
-
-  // Build rows for Ranking Geral (aggregate per route across all networks)
-  const byRoute = {};
-  for (const s of scores) {
-    if (!byRoute[s.routeId]) byRoute[s.routeId] = { routeName: s.routeName, supplier: s.supplier, scores: [], deliveries: [], latencies: [], fakeDlrs: [], cbDelivered: 0, cbTotal: 0, networks: [] };
-    const r = byRoute[s.routeId];
-    r.scores.push(s.score);
-    r.deliveries.push(s.deliveryRate);
-    if (s.avgLatency != null) r.latencies.push(s.avgLatency);
-    r.fakeDlrs.push(s.fakeDlrRate);
-    r.networks.push(s.networkName);
-    const cb = cbStats[`${s.routeId}__${s.networkName}`];
-    if (cb) { r.cbDelivered += cb.delivered; r.cbTotal += cb.total; }
-  }
-
-  const rankingEntries = Object.values(byRoute).map(r => {
-    const avg = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 100) / 100 : 0;
-    return {
-      routeName: r.routeName,
-      supplier: r.supplier,
-      scoreGeral: avg(r.scores),
-      entregaMedia: avg(r.deliveries),
-      latenciaMedia: r.latencies.length ? avg(r.latencies) : "",
-      fakeDlr: avg(r.fakeDlrs),
-      cbRate: r.cbTotal > 0 ? Math.round((r.cbDelivered / r.cbTotal) * 10000) / 100 : "",
-      networks: r.networks.join(", "),
-    };
-  }).sort((a, b) => b.scoreGeral - a.scoreGeral);
-
-  const rankingRows = rankingEntries.map((r, i) => [
-    now, runId, i + 1, r.routeName, r.supplier,
-    r.scoreGeral, r.entregaMedia, r.latenciaMedia,
-    r.fakeDlr, r.cbRate, r.networks,
-  ]);
-
-  // Append to sheets
-  try {
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: "Resultados!A2",
-      valueInputOption: "RAW",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: resultRows },
-    });
-    console.log(`[Sheets] ${resultRows.length} linhas adicionadas em Resultados`);
   } catch (err) {
-    console.error("[Sheets] Erro ao gravar Resultados:", err.message);
-  }
-
-  try {
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: "Recomendacoes!A2",
-      valueInputOption: "RAW",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: recoRows },
-    });
-    console.log(`[Sheets] ${recoRows.length} linhas adicionadas em Recomendacoes`);
-  } catch (err) {
-    console.error("[Sheets] Erro ao gravar Recomendacoes:", err.message);
-  }
-
-  try {
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: "Ranking Geral!A2",
-      valueInputOption: "RAW",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: rankingRows },
-    });
-    console.log(`[Sheets] ${rankingRows.length} linhas adicionadas em Ranking Geral`);
-  } catch (err) {
-    console.error("[Sheets] Erro ao gravar Ranking Geral:", err.message);
+    console.warn("[Sheets] Aviso ao deletar _temp:", err.message);
   }
 }
 
@@ -316,23 +413,51 @@ async function applyFormatting() {
       await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: clearReqs } });
     }
 
-    const R = sm["Resultados"], E = sm["Recomendacoes"], K = sm["Ranking Geral"];
-    if (R === undefined || E === undefined || K === undefined) return;
+    const allReqs = [];
 
-    const allReqs = [
-      ..._buildSheetFormat(R, 11, [[0,100],[1,55],[2,180],[3,110],[4,100],[5,65],[6,120],[7,120],[8,100],[9,135],[10,80]], [1,5,6,7,8,9,10],
-        [..._condHigh(R,6,95,80), ..._condHigh(R,7,95,80), ..._condLow(R,8,0,5), ..._condLow(R,9,60,120), ..._condGradient(R,10)]),
-      ..._buildSheetFormat(E, 9, [[0,100],[1,55],[2,100],[3,185],[4,110],[5,100],[6,105],[7,80],[8,130]], [1,5,6,7,8],
-        [..._condHigh(E,5,95,80), ..._condLow(E,6,60,120), ..._condGradient(E,7), ..._condHigh(E,8,95,80)]),
-      ..._buildSheetFormat(K, 11, [[0,100],[1,55],[2,70],[3,185],[4,110],[5,105],[6,120],[7,130],[8,95],[9,115],[10,200]], [1,2,5,6,7,8,9],
-        [..._condPodium(K,2), ..._condGradient(K,5), ..._condHigh(K,6,95,80), ..._condLow(K,7,60,120), ..._condLow(K,8,0,5), ..._condHigh(K,9,95,80)]),
-    ];
+    // Resultados tabs (11 cols, NO Tier column)
+    // Cols: 0:Data 1:Run 2:Rota 3:Fornecedor 4:Operadora 5:Testes 6:Entrega% 7:CB% 8:FakeDLR% 9:Latencia 10:Score
+    for (const [title, sid] of Object.entries(sm)) {
+      if (title.startsWith("Resultados ")) {
+        allReqs.push(..._buildSheetFormat(sid, 11,
+          [[0,100],[1,55],[2,180],[3,110],[4,100],[5,65],[6,120],[7,120],[8,100],[9,135],[10,80]],
+          [1,5,6,7,8,9,10],
+          [..._condHigh(sid,6,95,80), ..._condHigh(sid,7,95,80), ..._condLow(sid,8,0,5), ..._condLow(sid,9,60,120), ..._condGradient(sid,10)]
+        ));
+      }
+    }
 
-    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: allReqs } });
-    console.log(`[Sheets] Formatacao aplicada (${allReqs.length} ops)`);
+    // Recomendacoes tabs (9 cols, NO Tier column)
+    // Cols: 0:Data 1:Run 2:Operadora 3:MelhorRota 4:Fornecedor 5:Entrega% 6:Latencia 7:Score 8:CB%
+    for (const [title, sid] of Object.entries(sm)) {
+      if (title.startsWith("Recomendacoes ")) {
+        allReqs.push(..._buildSheetFormat(sid, 9,
+          [[0,100],[1,55],[2,100],[3,185],[4,110],[5,100],[6,105],[7,80],[8,130]],
+          [1,5,6,7,8],
+          [..._condHigh(sid,5,95,80), ..._condLow(sid,6,60,120), ..._condGradient(sid,7), ..._condHigh(sid,8,95,80)]
+        ));
+      }
+    }
+
+    // Ranking tabs (11 cols, NO Tier column)
+    // Cols: 0:Data 1:Run 2:Posicao 3:Rota 4:Fornecedor 5:ScoreGeral 6:Entrega% 7:Latencia 8:FakeDLR% 9:CB% 10:Operadoras
+    for (const [title, sid] of Object.entries(sm)) {
+      if (title.startsWith("Ranking ")) {
+        allReqs.push(..._buildSheetFormat(sid, 11,
+          [[0,100],[1,55],[2,70],[3,185],[4,110],[5,105],[6,120],[7,130],[8,95],[9,115],[10,200]],
+          [1,2,5,6,7,8,9],
+          [..._condPodium(sid,2), ..._condGradient(sid,5), ..._condHigh(sid,6,95,80), ..._condLow(sid,7,60,120), ..._condLow(sid,8,0,5), ..._condHigh(sid,9,95,80)]
+        ));
+      }
+    }
+
+    if (allReqs.length) {
+      await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: allReqs } });
+      console.log(`[Sheets] Formatacao aplicada (${allReqs.length} ops)`);
+    }
   } catch (err) {
     console.error("[Sheets] Erro ao aplicar formatacao:", err.message);
   }
 }
 
-module.exports = { pushResults, applyFormatting };
+module.exports = { pushResults, applyFormatting, rebuildAllSheets };
