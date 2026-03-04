@@ -171,6 +171,28 @@
       color: var(--text-light);
       font-size: 15px;
     }
+
+    /* Tier section headers */
+    .tier-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 28px 0 16px;
+      padding: 12px 20px;
+      background: linear-gradient(135deg, #1c4e6b, #2a7a9b);
+      border-radius: 10px;
+      color: white;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+    .tier-header .tier-badge {
+      background: rgba(255,255,255,0.2);
+      padding: 2px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -220,6 +242,17 @@
           <label>Operadoras</label>
           <select id="filterNetworks" multiple>
             <option value="">Carregando...</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Tier</label>
+          <select id="filterTier">
+            <option value="">Todos</option>
+            <option value="DIAMOND">DIAMOND</option>
+            <option value="PLATINUM">PLATINUM</option>
+            <option value="GOLD">GOLD</option>
+            <option value="SILVER">SILVER</option>
+            <option value="OTP">OTP</option>
           </select>
         </div>
         <div class="filter-group" style="flex-direction:row;gap:8px;align-self:flex-end">

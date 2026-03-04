@@ -64,6 +64,9 @@ async function applyFilters() {
   const networks = getSelectedValues("filterNetworks");
   if (networks.length) params.set("networks", networks.join(","));
 
+  const tier = document.getElementById("filterTier").value;
+  if (tier) params.set("tier", tier);
+
   try {
     const res = await fetch(`/api/reports/aggregated?${params}`);
     const data = await res.json();
@@ -79,6 +82,7 @@ function clearFilters() {
   document.getElementById("filterDateTo").value = "";
   document.getElementById("filterRoutes").selectedIndex = -1;
   document.getElementById("filterNetworks").selectedIndex = -1;
+  document.getElementById("filterTier").value = "";
   applyFilters();
 }
 
@@ -127,6 +131,7 @@ function renderResults(data) {
         route_name: row.route_name,
         supplier: row.supplier,
         route_type: row.route_type,
+        tier: row.tier || "",
         networks: [],
         // Totals
         sent: 0,
@@ -149,11 +154,28 @@ function renderResults(data) {
     }
   }
 
-  // Render route panels
+  // Render route panels grouped by tier
   let html = "";
   const routeGroups = Object.values(byRoute).sort((a, b) => a.route_name.localeCompare(b.route_name));
 
+  // Group routes by tier
+  const TIER_ORDER = ["DIAMOND", "PLATINUM", "GOLD", "SILVER", "OTP", ""];
+  const byTier = {};
   for (const route of routeGroups) {
+    const tier = route.tier || "";
+    if (!byTier[tier]) byTier[tier] = [];
+    byTier[tier].push(route);
+  }
+
+  for (const tier of TIER_ORDER) {
+    const tierRoutes = byTier[tier];
+    if (!tierRoutes || !tierRoutes.length) continue;
+
+    if (tier) {
+      html += `<div class="tier-header">${tier} <span class="tier-badge">${tierRoutes.length} rota${tierRoutes.length > 1 ? "s" : ""}</span></div>`;
+    }
+
+  for (const route of tierRoutes) {
     const totalRate = route.sent > 0 ? Math.round((route.delivered / route.sent) * 1000) / 10 : 0;
     const totalFakeDlrRate = route.sent > 0 ? Math.round((route.fake_dlrs / route.sent) * 1000) / 10 : 0;
     const totalLatency = route.latencyCount > 0 ? (route.latencySum / route.latencyCount).toFixed(1) : null;
@@ -226,6 +248,7 @@ function renderResults(data) {
       </div>
     </div>`;
   }
+  } // end tier loop
 
   container.innerHTML = html;
 }

@@ -1,5 +1,6 @@
 const Database = require("better-sqlite3");
 const path = require("path");
+const { getRouteTier } = require("./config");
 
 const DB_PATH = path.resolve(__dirname, "../chipfarm.db");
 let db;
@@ -9,6 +10,7 @@ function getDb() {
     db = new Database(DB_PATH);
     db.pragma("journal_mode = WAL");
     initTables();
+    migrateTier();
   }
   return db;
 }
@@ -94,6 +96,26 @@ function initTables() {
   `);
 }
 
+function migrateTier() {
+  // Add tier column to test_results and route_scores (idempotent)
+  try { db.exec("ALTER TABLE test_results ADD COLUMN tier TEXT"); } catch (e) { /* column already exists */ }
+  try { db.exec("ALTER TABLE route_scores ADD COLUMN tier TEXT"); } catch (e) { /* column already exists */ }
+
+  // Backfill existing data based on route_id → tier mapping
+  const tierMap = {
+    GOLD: [1897, 1898, 1909],
+    PLATINUM: [1910, 1900],
+    DIAMOND: [1903, 1899, 1905],
+    SILVER: [1901],
+    OTP: [1902, 1904, 1906],
+  };
+  for (const [tier, ids] of Object.entries(tierMap)) {
+    const placeholders = ids.map(() => "?").join(",");
+    db.prepare(`UPDATE test_results SET tier = ? WHERE tier IS NULL AND route_id IN (${placeholders})`).run(tier, ...ids);
+    db.prepare(`UPDATE route_scores SET tier = ? WHERE tier IS NULL AND route_id IN (${placeholders})`).run(tier, ...ids);
+  }
+}
+
 // Insert a new test run
 function createRun(campaignId) {
   if (campaignId) {
@@ -111,10 +133,10 @@ function finishRun(runId, totalTests) {
 // Insert a test result row (initially just the SendSpeed + TelQ request data)
 function insertResult(data) {
   const stmt = getDb().prepare(`
-    INSERT INTO test_results (run_id, route_id, route_name, supplier, route_type, trace_id, telq_test_id, telq_phone, telq_test_id_text, network_mcc, network_mnc, network_name)
-    VALUES (@runId, @routeId, @routeName, @supplier, @routeType, @traceId, @telqTestId, @telqPhone, @telqTestIdText, @networkMcc, @networkMnc, @networkName)
+    INSERT INTO test_results (run_id, route_id, route_name, supplier, route_type, trace_id, telq_test_id, telq_phone, telq_test_id_text, network_mcc, network_mnc, network_name, tier)
+    VALUES (@runId, @routeId, @routeName, @supplier, @routeType, @traceId, @telqTestId, @telqPhone, @telqTestIdText, @networkMcc, @networkMnc, @networkName, @tier)
   `);
-  return stmt.run(data).lastInsertRowid;
+  return stmt.run({ ...data, tier: data.tier || getRouteTier(data.routeId) || null }).lastInsertRowid;
 }
 
 // Update with SendSpeed callback
@@ -171,8 +193,8 @@ function calculateScores(runId) {
 
   const scores = [];
   const insertScore = getDb().prepare(`
-    INSERT INTO route_scores (run_id, route_id, route_name, supplier, network_name, delivery_rate, avg_latency, fake_dlr_rate, score, sample_size)
-    VALUES (@runId, @routeId, @routeName, @supplier, @networkName, @deliveryRate, @avgLatency, @fakeDlrRate, @score, @sampleSize)
+    INSERT INTO route_scores (run_id, route_id, route_name, supplier, network_name, delivery_rate, avg_latency, fake_dlr_rate, score, sample_size, tier)
+    VALUES (@runId, @routeId, @routeName, @supplier, @networkName, @deliveryRate, @avgLatency, @fakeDlrRate, @score, @sampleSize, @tier)
   `);
 
   const insertMany = getDb().transaction((items) => {
@@ -206,6 +228,7 @@ function calculateScores(runId) {
       fakeDlrRate: Math.round(fakeDlrRate * 10000) / 100,
       score,
       sampleSize: total,
+      tier: group.tier || getRouteTier(group.route_id) || null,
     };
     scores.push(entry);
   }
@@ -300,9 +323,14 @@ function getAggregatedResults(filters = {}) {
     params.push(...filters.networkNames);
   }
 
+  if (filters.tier) {
+    where += " AND tr.tier = ?";
+    params.push(filters.tier);
+  }
+
   const sql = `
     SELECT
-      tr.route_id, tr.route_name, tr.supplier, tr.route_type,
+      tr.route_id, tr.route_name, tr.supplier, tr.route_type, tr.tier,
       tr.network_mcc, tr.network_mnc, tr.network_name,
       COUNT(*) as sent,
       SUM(CASE WHEN tr.telq_status = 'POSITIVE' THEN 1 ELSE 0 END) as delivered,
@@ -312,7 +340,7 @@ function getAggregatedResults(filters = {}) {
     FROM test_results tr
     JOIN test_runs r ON tr.run_id = r.id
     WHERE ${where}
-    GROUP BY tr.route_id, tr.route_name, tr.supplier, tr.network_name
+    GROUP BY tr.route_id, tr.route_name, tr.supplier, tr.tier, tr.network_name
     ORDER BY tr.route_name, tr.network_name
   `;
 

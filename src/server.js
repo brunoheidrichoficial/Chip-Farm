@@ -44,7 +44,7 @@ app.use("/api/reports", reportsRouter);
 
 // Available routes
 app.get("/api/routes", (req, res) => {
-  res.json(routes.map((r) => ({ id: r.id, name: r.name, supplier: r.supplier, type: r.type })));
+  res.json(routes.map((r) => ({ id: r.id, name: r.name, supplier: r.supplier, type: r.type, tier: r.tier })));
 });
 
 // Available networks (from config + optional TelQ live)

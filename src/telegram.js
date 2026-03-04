@@ -1,4 +1,4 @@
-const { config } = require("./config");
+const { config, TIERS, getRouteTier } = require("./config");
 
 async function sendMessage(text) {
   const url = `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`;
@@ -28,7 +28,7 @@ async function sendMessage(text) {
   }
 }
 
-// Format the daily report for Telegram
+// Format the daily report for Telegram — grouped by tier
 function formatReport(scores, runResults, runId) {
   const now = new Date().toLocaleDateString("pt-BR");
   const totalTests = runResults.length;
@@ -52,49 +52,65 @@ function formatReport(scores, runResults, runId) {
   msg += `Testes: ${totalTests} | Entrega real: ${overallRate}% | Fake DLRs: ${fakeDlrs}\n`;
   msg += `${"─".repeat(40)}\n\n`;
 
-  // Group scores by network
-  const byNetwork = {};
+  // Group scores by tier
+  const byTier = {};
   for (const s of scores) {
-    if (!byNetwork[s.networkName]) byNetwork[s.networkName] = [];
-    byNetwork[s.networkName].push(s);
+    const tier = s.tier || getRouteTier(s.routeId) || "SEM_TIER";
+    if (!byTier[tier]) byTier[tier] = [];
+    byTier[tier].push(s);
   }
 
-  for (const [network, networkScores] of Object.entries(byNetwork)) {
-    const sorted = networkScores.sort((a, b) => b.score - a.score);
-    msg += `<b>${network}</b>\n`;
+  // Iterate tiers in defined order
+  const tierOrder = [...TIERS, "SEM_TIER"];
+  for (const tier of tierOrder) {
+    const tierScores = byTier[tier];
+    if (!tierScores || !tierScores.length) continue;
 
-    for (const s of sorted) {
-      const icon = s.deliveryRate >= 95 ? "🟢" : s.deliveryRate >= 80 ? "🟡" : "🔴";
-      const latency = s.avgLatency != null ? `${s.avgLatency}s` : "N/A";
+    msg += `<b>━━━ ${tier} ━━━</b>\n\n`;
 
-      // SendSpeed callback info
-      const cb = cbStats[`${s.routeId}__${s.networkName}`];
-      const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : null;
-      const cbLabel = cbRate != null ? ` | CB: ${cbRate}%` : "";
-      const fakeDlrFlag = s.fakeDlrRate > 0 ? ` | FakeDLR: ${s.fakeDlrRate}%` : "";
+    // Group by network within tier
+    const byNetwork = {};
+    for (const s of tierScores) {
+      if (!byNetwork[s.networkName]) byNetwork[s.networkName] = [];
+      byNetwork[s.networkName].push(s);
+    }
 
-      msg += `${icon} ${s.routeName}: ${s.deliveryRate}% | ${latency}${cbLabel}${fakeDlrFlag} | Score: ${s.score}\n`;
+    for (const [network, networkScores] of Object.entries(byNetwork)) {
+      const sorted = networkScores.sort((a, b) => b.score - a.score);
+      msg += `<b>${network}</b>\n`;
+
+      for (const s of sorted) {
+        const icon = s.deliveryRate >= 95 ? "🟢" : s.deliveryRate >= 80 ? "🟡" : "🔴";
+        const latency = s.avgLatency != null ? `${s.avgLatency}s` : "N/A";
+
+        const cb = cbStats[`${s.routeId}__${s.networkName}`];
+        const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : null;
+        const cbLabel = cbRate != null ? ` | CB: ${cbRate}%` : "";
+        const fakeDlrFlag = s.fakeDlrRate > 0 ? ` | FakeDLR: ${s.fakeDlrRate}%` : "";
+
+        msg += `${icon} ${s.routeName}: ${s.deliveryRate}% | ${latency}${cbLabel}${fakeDlrFlag} | Score: ${s.score}\n`;
+      }
+      msg += "\n";
+    }
+
+    // Recommendation per tier — best route per network WITHIN this tier
+    msg += `<b>RECOMENDACAO ${tier}</b>\n`;
+    for (const [network, networkScores] of Object.entries(byNetwork)) {
+      const best = networkScores.sort((a, b) => b.score - a.score)[0];
+      if (best) {
+        const latency = best.avgLatency != null ? ` | ${best.avgLatency}s` : "";
+        msg += `→ ${network}: usar <b>${best.routeName}</b> (${best.deliveryRate}%${latency})\n`;
+      }
     }
     msg += "\n";
   }
 
-  // Best route per network (score already factors delivery + latency + fake DLRs)
-  msg += `<b>RECOMENDACAO</b>\n`;
-  for (const [network, networkScores] of Object.entries(byNetwork)) {
-    const best = networkScores.sort((a, b) => b.score - a.score)[0];
-    if (best) {
-      const latency = best.avgLatency != null ? ` | ${best.avgLatency}s` : "";
-      msg += `→ ${network}: usar <b>${best.routeName}</b> (${best.deliveryRate}%${latency})\n`;
-    }
-  }
-
-  // Alerts
+  // Alerts — global across all tiers
   const alerts = [];
   for (const s of scores) {
     if (s.deliveryRate < 80) alerts.push(`${s.routeName} para ${s.networkName}: apenas ${s.deliveryRate}% entrega`);
     if (s.fakeDlrRate > 5) alerts.push(`${s.routeName} para ${s.networkName}: ${s.fakeDlrRate}% fake DLR`);
 
-    // Alert for callback vs real delivery mismatch
     const cb = cbStats[`${s.routeId}__${s.networkName}`];
     if (cb) {
       const cbRate = Math.round((cb.delivered / cb.total) * 10000) / 100;
@@ -105,7 +121,7 @@ function formatReport(scores, runResults, runId) {
   }
 
   if (alerts.length) {
-    msg += `\n<b>ALERTAS</b>\n`;
+    msg += `<b>ALERTAS</b>\n`;
     for (const a of alerts) msg += `⚠ ${a}\n`;
   }
 

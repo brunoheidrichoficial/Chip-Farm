@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const { getRouteTier } = require("../config");
 
 // List test runs
 router.get("/", (req, res) => {
@@ -28,6 +29,9 @@ router.get("/aggregated", (req, res) => {
   if (req.query.networks) {
     filters.networkNames = req.query.networks.split(",").filter(Boolean);
   }
+  if (req.query.tier) {
+    filters.tier = req.query.tier;
+  }
 
   const rows = db.getAggregatedResults(filters);
 
@@ -43,6 +47,7 @@ router.get("/aggregated", (req, res) => {
       route_name: r.route_name,
       supplier: r.supplier,
       route_type: r.route_type,
+      tier: r.tier || getRouteTier(r.route_id) || null,
       network_name: r.network_name,
       network_mcc: r.network_mcc,
       network_mnc: r.network_mnc,

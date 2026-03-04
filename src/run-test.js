@@ -177,6 +177,7 @@ async function runFullTest(campaignConfig) {
           networkMcc: tt.destinationNetwork.mcc,
           networkMnc: tt.destinationNetwork.mnc,
           networkName: network.name || `MNC-${tt.destinationNetwork.mnc}`,
+          tier: route.tier || null,
         });
 
         testCount++;
@@ -261,6 +262,7 @@ async function runFullTest(campaignConfig) {
           networkMcc: tt.destinationNetwork.mcc,
           networkMnc: tt.destinationNetwork.mnc,
           networkName: network.name,
+          tier: route.tier || null,
         });
 
         testCount++;

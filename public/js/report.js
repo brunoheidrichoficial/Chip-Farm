@@ -63,45 +63,56 @@ function renderScores(scores) {
     return;
   }
 
-  // Group by route
-  const byRoute = {};
+  // Group by tier, then by route within tier
+  const TIER_ORDER = ["DIAMOND", "PLATINUM", "GOLD", "SILVER", "OTP", ""];
+  const byTier = {};
   for (const s of scores) {
+    const tier = s.tier || "";
+    if (!byTier[tier]) byTier[tier] = {};
     const key = s.route_id || s.route_name;
-    if (!byRoute[key]) byRoute[key] = { route_name: s.route_name, supplier: s.supplier, networks: [] };
-    byRoute[key].networks.push(s);
+    if (!byTier[tier][key]) byTier[tier][key] = { route_name: s.route_name, supplier: s.supplier, networks: [] };
+    byTier[tier][key].networks.push(s);
   }
 
   let html = "";
-  for (const [, group] of Object.entries(byRoute)) {
-    const sorted = group.networks.sort((a, b) => b.score - a.score);
+  for (const tier of TIER_ORDER) {
+    const tierRoutes = byTier[tier];
+    if (!tierRoutes) continue;
 
-    // Route totals
-    const totalSamples = sorted.reduce((s, n) => s + n.sample_size, 0);
-    const totalDelivered = sorted.reduce((s, n) => s + Math.round(n.delivery_rate * n.sample_size / 100), 0);
-    const totalRate = totalSamples > 0 ? Math.round((totalDelivered / totalSamples) * 1000) / 10 : 0;
-
-    html += `<h3 style="margin:16px 0 8px;font-size:15px;color:var(--green-dark)">${group.route_name} <small style="color:var(--text-light);font-weight:400">${group.supplier} | ${totalSamples} testes | ${totalRate}% entrega</small></h3>`;
-    html +=
-      '<div class="table-wrap"><table><thead><tr><th>Operadora</th><th>Entrega</th><th>Latencia</th><th>Fake DLR</th><th>Score</th><th>Amostras</th></tr></thead><tbody>';
-    for (const s of sorted) {
-      const badgeClass =
-        s.delivery_rate >= 95
-          ? "badge-green"
-          : s.delivery_rate >= 80
-          ? "badge-yellow"
-          : "badge-red";
-      const latency = s.avg_latency != null ? s.avg_latency + "s" : "N/A";
-      const fakeBadge = s.fake_dlr_rate > 0 ? "badge-red" : "badge-green";
-      html += `<tr>
-        <td><strong>${s.network_name}</strong></td>
-        <td><span class="badge ${badgeClass}">${s.delivery_rate}%</span></td>
-        <td>${latency}</td>
-        <td><span class="badge ${fakeBadge}">${s.fake_dlr_rate}%</span></td>
-        <td><strong>${s.score}</strong></td>
-        <td>${s.sample_size}</td>
-      </tr>`;
+    if (tier) {
+      html += `<div style="display:flex;align-items:center;gap:12px;margin:28px 0 12px;padding:10px 20px;background:linear-gradient(135deg,#1c4e6b,#2a7a9b);border-radius:10px;color:white;font-size:16px;font-weight:700;letter-spacing:1px">${tier}</div>`;
     }
-    html += "</tbody></table></div>";
+
+    for (const [, group] of Object.entries(tierRoutes)) {
+      const sorted = group.networks.sort((a, b) => b.score - a.score);
+
+      const totalSamples = sorted.reduce((s, n) => s + n.sample_size, 0);
+      const totalDelivered = sorted.reduce((s, n) => s + Math.round(n.delivery_rate * n.sample_size / 100), 0);
+      const totalRate = totalSamples > 0 ? Math.round((totalDelivered / totalSamples) * 1000) / 10 : 0;
+
+      html += `<h3 style="margin:16px 0 8px;font-size:15px;color:var(--green-dark)">${group.route_name} <small style="color:var(--text-light);font-weight:400">${group.supplier} | ${totalSamples} testes | ${totalRate}% entrega</small></h3>`;
+      html +=
+        '<div class="table-wrap"><table><thead><tr><th>Operadora</th><th>Entrega</th><th>Latencia</th><th>Fake DLR</th><th>Score</th><th>Amostras</th></tr></thead><tbody>';
+      for (const s of sorted) {
+        const badgeClass =
+          s.delivery_rate >= 95
+            ? "badge-green"
+            : s.delivery_rate >= 80
+            ? "badge-yellow"
+            : "badge-red";
+        const latency = s.avg_latency != null ? s.avg_latency + "s" : "N/A";
+        const fakeBadge = s.fake_dlr_rate > 0 ? "badge-red" : "badge-green";
+        html += `<tr>
+          <td><strong>${s.network_name}</strong></td>
+          <td><span class="badge ${badgeClass}">${s.delivery_rate}%</span></td>
+          <td>${latency}</td>
+          <td><span class="badge ${fakeBadge}">${s.fake_dlr_rate}%</span></td>
+          <td><strong>${s.score}</strong></td>
+          <td>${s.sample_size}</td>
+        </tr>`;
+      }
+      html += "</tbody></table></div>";
+    }
   }
   content.innerHTML = html;
 }
