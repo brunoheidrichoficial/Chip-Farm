@@ -175,6 +175,29 @@ Pedido do usuario: ${prompt}`,
   }
 });
 
+// ─── Sheets management endpoints ───
+app.post("/api/sheets/rebuild", async (req, res) => {
+  const sheets = require("./sheets");
+  res.json({ ok: true, message: "Rebuild started" });
+  try {
+    await sheets.rebuildAllSheets();
+    console.log("[API] Sheets rebuild complete");
+  } catch (err) {
+    console.error("[API] Sheets rebuild failed:", err.message);
+  }
+});
+
+app.post("/api/sheets/format", async (req, res) => {
+  const sheets = require("./sheets");
+  try {
+    await sheets.applyFormatting();
+    res.json({ ok: true, message: "Formatting applied" });
+  } catch (err) {
+    console.error("[API] Sheets format failed:", err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // Run test now (ad-hoc, uses all routes/networks)
 app.post("/api/run-now", async (req, res) => {
   const { runFullTest } = require("./run-test");

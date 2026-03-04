@@ -191,7 +191,7 @@ function buildSheetData(scores, cbStats, runId, now) {
 
 // ─── Push results: ONLY per-tier tabs (no global tabs) ───
 
-async function pushResults(scores, runResults, runId) {
+async function pushResults(scores, runResults, runId, { skipFormatting = false } = {}) {
   const sheets = getSheets();
   if (!sheets) {
     console.log("[Sheets] Desabilitado (sem credenciais)");
@@ -233,6 +233,11 @@ async function pushResults(scores, runResults, runId) {
     await appendToSheet(`Resultados ${tier}`, RESULTS_HEADERS, data.resultRows);
     await appendToSheet(`Recomendacoes ${tier}`, RECOMENDACOES_HEADERS, data.recoRows);
     await appendToSheet(`Ranking ${tier}`, RANKING_HEADERS, data.rankingRows);
+  }
+
+  if (!skipFormatting) {
+    try { await applyFormatting(); }
+    catch (err) { console.error("[Sheets] Formatting failed:", err.message); }
   }
 }
 
@@ -302,11 +307,15 @@ async function rebuildAllSheets() {
       tier: s.tier || getRouteTier(s.route_id) || null,
     }));
 
-    await pushResults(mappedScores, results, run.id);
+    await pushResults(mappedScores, results, run.id, { skipFormatting: true });
     rebuiltRuns++;
   }
 
   console.log(`[Sheets] Rebuild concluido: ${rebuiltRuns} runs processados`);
+
+  // Apply formatting once at the end
+  try { await applyFormatting(); }
+  catch (err) { console.error("[Sheets] Formatting after rebuild failed:", err.message); }
 
   // 3. Delete _temp sheet
   try {

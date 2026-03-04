@@ -376,10 +376,9 @@ async function runFullTest(campaignConfig) {
   const report = telegram.formatReport(scores, results, runId);
   await telegram.sendMessage(report);
 
-  // 10. Push final to Google Sheets + apply formatting
+  // 10. Push final to Google Sheets (formatting applied automatically inside pushResults)
   try {
     await sheets.pushResults(scores, results, runId);
-    await sheets.applyFormatting();
   } catch (err) {
     console.error("[Test] Sheets push failed:", err.message);
   }
