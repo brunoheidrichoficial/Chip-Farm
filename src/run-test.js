@@ -10,28 +10,26 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Generate a realistic white-label SMS message to avoid carrier filtering
-function generateSmsText() {
+// Generate a realistic white-label SMS message embedding the TelQ test ID
+function generateSmsText(testIdText) {
+  const code = testIdText;
   const templates = [
-    () => `Seu codigo de verificacao: ${rand(100000, 999999)}. Nao compartilhe com ninguem.`,
-    () => `Ola, seu pedido #${rand(10000, 99999)} foi confirmado com sucesso.`,
-    () => `Voce tem R$${rand(5, 50)} de bonus disponivel. Acesse sua conta agora.`,
-    () => `Lembrete: sua consulta esta agendada para amanha as ${rand(8, 18)}h. Confirme pelo app.`,
-    () => `Seu pagamento de R$${rand(20, 500)},${String(rand(0, 99)).padStart(2, "0")} foi processado com sucesso.`,
-    () => `Codigo de acesso: ${rand(1000, 9999)}. Valido por 5 minutos.`,
-    () => `Parabens! Voce acumulou ${rand(100, 5000)} pontos. Resgate seus beneficios.`,
-    () => `Sua entrega #${rand(100000, 999999)} saiu para transporte. Acompanhe pelo app.`,
-    () => `Aviso: detectamos um acesso na sua conta. Se nao foi voce, entre em contato.`,
-    () => `Oferta especial: ${rand(10, 60)}% de desconto valido ate hoje. Aproveite!`,
-    () => `Seu boleto de R$${rand(30, 300)},${String(rand(0, 99)).padStart(2, "0")} vence em ${rand(1, 5)} dias. Pague pelo app.`,
-    () => `Bem-vindo! Seu cadastro foi realizado. Use o codigo ${rand(1000, 9999)} para ativar.`,
+    () => `Seu codigo de verificacao: ${code}. Nao compartilhe com ninguem.`,
+    () => `Ola, seu pedido #${code} foi confirmado com sucesso.`,
+    () => `Codigo de acesso: ${code}. Valido por 5 minutos.`,
+    () => `Seu protocolo de atendimento: ${code}. Guarde para consulta.`,
+    () => `Confirmacao de transferencia. Codigo: ${code}.`,
+    () => `Bem-vindo! Use o codigo ${code} para ativar sua conta.`,
+    () => `Seu codigo de seguranca e ${code}. Nao compartilhe.`,
+    () => `Recuperacao de senha: use o codigo ${code} para redefinir.`,
+    () => `Validacao de cadastro: informe o codigo ${code} no app.`,
+    () => `Sua reserva #${code} foi confirmada. Obrigado pela preferencia.`,
+    () => `Codigo de confirmacao: ${code}. Valido por 10 minutos.`,
+    () => `Autenticacao: seu codigo e ${code}. Nao compartilhe com terceiros.`,
   ];
   return templates[Math.floor(Math.random() * templates.length)]();
 }
 
-function rand(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
 
 /**
  * Build a flat list of { route, network, count } from the new campaign config format.
@@ -178,7 +176,7 @@ async function runFullTest(campaignConfig) {
           continue;
         }
 
-        const smsText = generateSmsText();
+        const smsText = generateSmsText(tt.testIdText);
         let sendResult;
         try {
           sendResult = await sendspeed.sendSms(route, tt.phoneNumber, smsText, callbackUrl);
@@ -263,7 +261,7 @@ async function runFullTest(campaignConfig) {
           name: `MNC-${tt.destinationNetwork.mnc}`,
         };
 
-        const smsText = generateSmsText();
+        const smsText = generateSmsText(tt.testIdText);
         let sendResult;
         try {
           sendResult = await sendspeed.sendSms(route, tt.phoneNumber, smsText, callbackUrl);
