@@ -13,8 +13,7 @@ async function main() {
   // Start callback server
   await startServer();
 
-  // Cron desabilitado — aguardando mais testes antes de ativar disparos automaticos
-  // Para reativar: descomentar o bloco abaixo
+  // Cron desabilitado — reativar quando teste estiver consolidado
   /*
   cron.schedule(config.cronSchedule, async () => {
     console.log(`\n[Cron] Triggered at ${new Date().toISOString()}`);
@@ -27,7 +26,7 @@ async function main() {
   });
   */
 
-  console.log(`[Scheduler] Cron DESABILITADO (modo manual)`);
+  console.log(`[Scheduler] Cron DESABILITADO (modo manual) — schedule configurado: ${config.cronSchedule}`);
   console.log("[Scheduler] Disparos somente via dashboard ou API\n");
 }
 

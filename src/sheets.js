@@ -469,4 +469,103 @@ async function applyFormatting() {
   }
 }
 
-module.exports = { pushResults, applyFormatting, rebuildAllSheets };
+// ─── Update only CB% cells for a specific run (no rebuild needed) ───
+
+async function updateRunCallbacks(runId) {
+  const sheets = getSheets();
+  if (!sheets) return;
+  const spreadsheetId = config.sheets.spreadsheetId;
+  if (!spreadsheetId) return;
+
+  const db = require("./db");
+  const results = db.getRunResults(runId);
+  if (!results.length) return;
+
+  // Compute CB stats per route/network
+  const cbStats = {};
+  for (const r of results) {
+    const key = `${r.route_id}__${r.network_name}`;
+    if (!cbStats[key]) cbStats[key] = { total: 0, delivered: 0 };
+    cbStats[key].total++;
+    if (r.sendspeed_status === "delivered") cbStats[key].delivered++;
+  }
+
+  // Aggregate CB per route (for Ranking tabs)
+  const cbByRoute = {};
+  for (const r of results) {
+    if (!cbByRoute[r.route_id]) cbByRoute[r.route_id] = { delivered: 0, total: 0 };
+    cbByRoute[r.route_id].total++;
+    if (r.sendspeed_status === "delivered") cbByRoute[r.route_id].delivered++;
+  }
+
+  const runStr = String(runId);
+  let totalUpdates = 0;
+
+  // Get all sheet tabs
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties.title" });
+  const tabNames = meta.data.sheets.map(s => s.properties.title);
+
+  for (const tab of tabNames) {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `'${tab}'!A:Z`,
+    });
+    const rows = res.data.values || [];
+    if (rows.length < 2) continue;
+
+    const updates = []; // { range, value }
+
+    if (tab.startsWith("Resultados ")) {
+      // Col B(1)=Run, Col C(2)=Rota, Col E(4)=Operadora, Col H(7)=CB%
+      for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][1]) !== runStr) continue;
+        const rota = rows[i][2];
+        const oper = rows[i][4];
+        // Find matching route_id by name
+        const match = results.find(r => r.route_name === rota && r.network_name === oper);
+        if (!match) continue;
+        const cb = cbStats[`${match.route_id}__${oper}`];
+        const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : "";
+        updates.push({ range: `'${tab}'!H${i + 1}`, values: [[cbRate]] });
+      }
+    } else if (tab.startsWith("Recomendacoes ")) {
+      // Col B(1)=Run, Col C(2)=Operadora, Col D(3)=MelhorRota, Col I(8)=CB%
+      for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][1]) !== runStr) continue;
+        const oper = rows[i][2];
+        const rota = rows[i][3];
+        const match = results.find(r => r.route_name === rota && r.network_name === oper);
+        if (!match) continue;
+        const cb = cbStats[`${match.route_id}__${oper}`];
+        const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : "";
+        updates.push({ range: `'${tab}'!I${i + 1}`, values: [[cbRate]] });
+      }
+    } else if (tab.startsWith("Ranking ")) {
+      // Col B(1)=Run, Col D(3)=Rota, Col J(9)=CB%
+      for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][1]) !== runStr) continue;
+        const rota = rows[i][3];
+        const match = results.find(r => r.route_name === rota);
+        if (!match) continue;
+        const cb = cbByRoute[match.route_id];
+        const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : "";
+        updates.push({ range: `'${tab}'!J${i + 1}`, values: [[cbRate]] });
+      }
+    }
+
+    if (updates.length) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          valueInputOption: "RAW",
+          data: updates,
+        },
+      });
+      totalUpdates += updates.length;
+    }
+  }
+
+  console.log(`[Sheets] CB% atualizado: ${totalUpdates} celulas para run #${runId}`);
+}
+
+module.exports = { pushResults, applyFormatting, rebuildAllSheets, updateRunCallbacks };

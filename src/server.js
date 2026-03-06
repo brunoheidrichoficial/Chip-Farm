@@ -187,6 +187,19 @@ app.post("/api/sheets/rebuild", async (req, res) => {
   }
 });
 
+app.post("/api/sheets/update-callbacks/:runId", async (req, res) => {
+  const sheets = require("./sheets");
+  const runId = parseInt(req.params.runId);
+  if (!runId) return res.status(400).json({ error: "runId is required" });
+  try {
+    await sheets.updateRunCallbacks(runId);
+    res.json({ ok: true, message: `Callbacks updated for run #${runId}` });
+  } catch (err) {
+    console.error("[API] Update callbacks failed:", err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.post("/api/sheets/format", async (req, res) => {
   const sheets = require("./sheets");
   try {

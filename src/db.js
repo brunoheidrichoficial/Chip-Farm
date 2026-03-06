@@ -184,6 +184,9 @@ function calculateScores(runId) {
   const results = getRunResults(runId);
   if (!results.length) return [];
 
+  // Clear existing scores for this run to avoid duplicates on recalculation
+  getDb().prepare("DELETE FROM route_scores WHERE run_id = ?").run(runId);
+
   const groups = {};
   for (const r of results) {
     const key = `${r.route_id}__${r.network_name}`;
