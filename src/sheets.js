@@ -97,6 +97,12 @@ const RANKING_HEADERS = [
   "Fake DLR %", "CB SendSpeed %", "Operadoras Testadas",
 ];
 
+const RANKING_GERAL_HEADERS = [
+  "Posicao", "Rota", "Fornecedor", "Tier",
+  "Score", "Entrega Pond %", "Latencia Score", "Anti-FakeDLR %",
+  "CB SendSpeed %", "Testes", "Ultima Atualizacao",
+];
+
 // Helper: append rows to a sheet tab (ensures headers + appends data)
 async function appendToSheet(sheetName, headers, rows) {
   if (!rows.length) return;
@@ -236,6 +242,8 @@ async function pushResults(scores, runResults, runId, { skipFormatting = false }
   }
 
   if (!skipFormatting) {
+    try { await updateRankingGeral(); }
+    catch (err) { console.error("[Sheets] Ranking Geral failed:", err.message); }
     try { await applyFormatting(); }
     catch (err) { console.error("[Sheets] Formatting failed:", err.message); }
   }
@@ -313,7 +321,9 @@ async function rebuildAllSheets() {
 
   console.log(`[Sheets] Rebuild concluido: ${rebuiltRuns} runs processados`);
 
-  // Apply formatting once at the end
+  // Update Ranking Geral + apply formatting once at the end
+  try { await updateRankingGeral(); }
+  catch (err) { console.error("[Sheets] Ranking Geral after rebuild failed:", err.message); }
   try { await applyFormatting(); }
   catch (err) { console.error("[Sheets] Formatting after rebuild failed:", err.message); }
 
@@ -451,6 +461,7 @@ async function applyFormatting() {
     // Ranking tabs (11 cols, NO Tier column)
     // Cols: 0:Data 1:Run 2:Posicao 3:Rota 4:Fornecedor 5:ScoreGeral 6:Entrega% 7:Latencia 8:FakeDLR% 9:CB% 10:Operadoras
     for (const [title, sid] of Object.entries(sm)) {
+      if (title === "Ranking Geral") continue; // handled separately below
       if (title.startsWith("Ranking ")) {
         allReqs.push(..._buildSheetFormat(sid, 11,
           [[0,100],[1,55],[2,70],[3,185],[4,110],[5,105],[6,120],[7,130],[8,95],[9,115],[10,200]],
@@ -458,6 +469,17 @@ async function applyFormatting() {
           [..._condPodium(sid,2), ..._condGradient(sid,5), ..._condHigh(sid,6,95,80), ..._condLow(sid,7,60,120), ..._condLow(sid,8,0,5), ..._condHigh(sid,9,95,80)]
         ));
       }
+    }
+
+    // Ranking Geral tab (11 cols)
+    // Cols: 0:Posicao 1:Rota 2:Fornecedor 3:Tier 4:Score 5:EntregaPond% 6:LatScore 7:AntiFakeDLR% 8:CB% 9:Testes 10:UltimaAtualizacao
+    if (sm["Ranking Geral"]) {
+      const sid = sm["Ranking Geral"];
+      allReqs.push(..._buildSheetFormat(sid, 11,
+        [[0,70],[1,185],[2,110],[3,90],[4,80],[5,120],[6,105],[7,115],[8,110],[9,70],[10,160]],
+        [0,4,5,6,7,8,9],
+        [..._condPodium(sid,0), ..._condGradient(sid,4), ..._condHigh(sid,5,95,80), ..._condHigh(sid,6,80,50), ..._condHigh(sid,7,97,90), ..._condHigh(sid,8,95,80)]
+      ));
     }
 
     if (allReqs.length) {
@@ -568,4 +590,87 @@ async function updateRunCallbacks(runId) {
   console.log(`[Sheets] CB% atualizado: ${totalUpdates} celulas para run #${runId}`);
 }
 
-module.exports = { pushResults, applyFormatting, rebuildAllSheets, updateRunCallbacks };
+// ─── Ranking Geral: aggregate view across all runs, always overwritten ───
+
+async function updateRankingGeral() {
+  const sheets = getSheets();
+  if (!sheets) return;
+  const spreadsheetId = config.sheets.spreadsheetId;
+  if (!spreadsheetId) return;
+
+  const db = require("./db");
+  const allResults = db.getAllResults();
+  if (!allResults.length) return;
+
+  const PRINCIPAL = ["Claro", "Vivo", "TIM"];
+
+  // Aggregate per route
+  const byRoute = {};
+  for (const r of allResults) {
+    if (!byRoute[r.route_id]) {
+      byRoute[r.route_id] = {
+        routeName: r.route_name, supplier: r.supplier, tier: r.tier || getRouteTier(r.route_id) || "",
+        weightedDelivered: 0, weightedTotal: 0, fakeDlrs: 0, total: 0,
+        latencyScores: [], cbDelivered: 0, cbTotal: 0,
+      };
+    }
+    const b = byRoute[r.route_id];
+    const w = PRINCIPAL.includes(r.network_name) ? 1.0 : 0.5;
+    b.weightedTotal += w;
+    if (r.telq_status === "POSITIVE") b.weightedDelivered += w;
+    if (r.fake_dlr === 1) b.fakeDlrs++;
+    b.total++;
+    if (r.telq_delay_seconds != null) {
+      const s = r.telq_delay_seconds;
+      b.latencyScores.push(s < 30 ? 1.0 : s < 60 ? 0.8 : s < 90 ? 0.5 : s < 120 ? 0.25 : 0.0);
+    }
+    if (r.sendspeed_status === "delivered") b.cbDelivered++;
+    if (r.sendspeed_status) b.cbTotal++;
+  }
+
+  const ranked = Object.values(byRoute).map(b => {
+    const entrega = b.weightedTotal > 0 ? b.weightedDelivered / b.weightedTotal : 0;
+    const latScore = b.latencyScores.length ? b.latencyScores.reduce((a, c) => a + c, 0) / b.latencyScores.length : 0;
+    const fakeDlrRate = b.total > 0 ? b.fakeDlrs / b.total : 0;
+    const score = Math.round((entrega * 80 + latScore * 15 + (1 - fakeDlrRate) * 5) * 100) / 100;
+    const cbRate = b.cbTotal > 0 ? Math.round((b.cbDelivered / b.cbTotal) * 10000) / 100 : "";
+    return {
+      routeName: b.routeName, supplier: b.supplier, tier: b.tier,
+      score, entrega: Math.round(entrega * 10000) / 100,
+      latScore: Math.round(latScore * 10000) / 100,
+      antiFake: Math.round((1 - fakeDlrRate) * 10000) / 100,
+      cbRate, total: b.total,
+    };
+  }).sort((a, b) => b.score - a.score);
+
+  const now = new Date().toLocaleDateString("pt-BR") + " " + new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const rows = ranked.map((r, i) => [
+    i + 1, r.routeName, r.supplier, r.tier,
+    r.score, r.entrega, r.latScore, r.antiFake,
+    r.cbRate, r.total, now,
+  ]);
+
+  const sheetName = "Ranking Geral";
+  await ensureHeaders(sheetName, RANKING_GERAL_HEADERS);
+
+  // Clear existing data (keep header) and write fresh
+  try {
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `'${sheetName}'!A2:Z`,
+    });
+    if (rows.length) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${sheetName}'!A2`,
+        valueInputOption: "RAW",
+        requestBody: { values: rows },
+      });
+    }
+    console.log(`[Sheets] Ranking Geral atualizado: ${rows.length} rotas`);
+  } catch (err) {
+    console.error(`[Sheets] Erro ao atualizar Ranking Geral:`, err.message);
+  }
+}
+
+module.exports = { pushResults, applyFormatting, rebuildAllSheets, updateRunCallbacks, updateRankingGeral };

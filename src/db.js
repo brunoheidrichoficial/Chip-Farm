@@ -212,13 +212,30 @@ function calculateScores(runId) {
     const latencies = tests.filter((t) => t.telq_delay_seconds != null).map((t) => t.telq_delay_seconds);
     const avgLatency = latencies.length ? latencies.reduce((a, b) => a + b, 0) / latencies.length : null;
 
-    const deliveryRate = total > 0 ? delivered / total : 0;
+    // Weighted delivery: principal carriers (Claro/Vivo/TIM) = 1.0, MNC = 0.5
+    const PRINCIPAL = ["Claro", "Vivo", "TIM"];
+    let weightedDelivered = 0, weightedTotal = 0;
+    for (const t of tests) {
+      const w = PRINCIPAL.includes(t.network_name) ? 1.0 : 0.5;
+      weightedTotal += w;
+      if (t.telq_status === "POSITIVE") weightedDelivered += w;
+    }
+    const deliveryRate = weightedTotal > 0 ? weightedDelivered / weightedTotal : 0;
     const fakeDlrRate = total > 0 ? fakeDlrs / total : 0;
 
-    // Score: delivery_rate * 70 + (1 - fake_dlr_rate) * 20 + latency_score * 10
-    // Latency scale: 0s = 1.0 (best), 300s = 0 (worst) — realistic SMS range
-    const latencyScore = avgLatency != null ? Math.max(0, 1 - avgLatency / 300) : 0.5;
-    const score = Math.round((deliveryRate * 70 + (1 - fakeDlrRate) * 20 + latencyScore * 10) * 100) / 100;
+    // Tiered latency: <30s=1.0, 30-60s=0.8, 60-90s=0.5, 90-120s=0.25, >120s=0.0
+    function latencyTier(s) {
+      if (s < 30) return 1.0;
+      if (s < 60) return 0.8;
+      if (s < 90) return 0.5;
+      if (s < 120) return 0.25;
+      return 0.0;
+    }
+    const latencyScores = latencies.map(latencyTier);
+    const latencyScore = latencyScores.length ? latencyScores.reduce((a, b) => a + b, 0) / latencyScores.length : 0;
+
+    // Score = Entrega Ponderada (80) + Latência Escalonada (15) + Anti-FakeDLR (5)
+    const score = Math.round((deliveryRate * 80 + latencyScore * 15 + (1 - fakeDlrRate) * 5) * 100) / 100;
 
     const entry = {
       runId,
@@ -360,6 +377,10 @@ function getDistinctRoutes() {
   return getDb().prepare("SELECT DISTINCT route_id, route_name, supplier FROM test_results ORDER BY route_name").all();
 }
 
+function getAllResults() {
+  return getDb().prepare("SELECT * FROM test_results ORDER BY run_id, route_id, network_name").all();
+}
+
 // ─── Report queries ───
 
 function getTestRuns(limit = 20) {
@@ -401,4 +422,5 @@ module.exports = {
   getAggregatedResults,
   getDistinctNetworks,
   getDistinctRoutes,
+  getAllResults,
 };
