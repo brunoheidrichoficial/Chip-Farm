@@ -234,8 +234,8 @@ function calculateScores(runId) {
     const latencyScores = latencies.map(latencyTier);
     const latencyScore = latencyScores.length ? latencyScores.reduce((a, b) => a + b, 0) / latencyScores.length : 0;
 
-    // Score = Entrega Ponderada (80) + Latência Escalonada (15) + Anti-FakeDLR (5)
-    const score = Math.round((deliveryRate * 80 + latencyScore * 15 + (1 - fakeDlrRate) * 5) * 100) / 100;
+    // Score = Entrega Ponderada (90) + Latência Escalonada (10)
+    const score = Math.round((deliveryRate * 90 + latencyScore * 10) * 100) / 100;
 
     const entry = {
       runId,

@@ -99,8 +99,8 @@ const RANKING_HEADERS = [
 
 const RANKING_GERAL_HEADERS = [
   "Posicao", "Rota", "Fornecedor", "Tier",
-  "Score", "Entrega Pond %", "Latencia Score", "Anti-FakeDLR %",
-  "CB SendSpeed %", "Testes", "Ultima Atualizacao",
+  "Score", "Entrega Pond %", "Latencia Score",
+  "Fake DLR %", "CB SendSpeed %", "Testes", "Ultima Atualizacao",
 ];
 
 // Helper: append rows to a sheet tab (ensures headers + appends data)
@@ -472,13 +472,13 @@ async function applyFormatting() {
     }
 
     // Ranking Geral tab (11 cols)
-    // Cols: 0:Posicao 1:Rota 2:Fornecedor 3:Tier 4:Score 5:EntregaPond% 6:LatScore 7:AntiFakeDLR% 8:CB% 9:Testes 10:UltimaAtualizacao
+    // Cols: 0:Posicao 1:Rota 2:Fornecedor 3:Tier 4:Score 5:EntregaPond% 6:LatScore 7:FakeDLR% 8:CB% 9:Testes 10:UltimaAtualizacao
     if (sm["Ranking Geral"]) {
       const sid = sm["Ranking Geral"];
       allReqs.push(..._buildSheetFormat(sid, 11,
-        [[0,70],[1,185],[2,110],[3,90],[4,80],[5,120],[6,105],[7,115],[8,110],[9,70],[10,160]],
+        [[0,70],[1,185],[2,110],[3,90],[4,80],[5,120],[6,105],[7,100],[8,110],[9,70],[10,160]],
         [0,4,5,6,7,8,9],
-        [..._condPodium(sid,0), ..._condGradient(sid,4), ..._condHigh(sid,5,95,80), ..._condHigh(sid,6,80,50), ..._condHigh(sid,7,97,90), ..._condHigh(sid,8,95,80)]
+        [..._condPodium(sid,0), ..._condGradient(sid,4), ..._condHigh(sid,5,95,80), ..._condHigh(sid,6,80,50), ..._condLow(sid,7,0,5), ..._condHigh(sid,8,95,80)]
       ));
     }
 
@@ -632,13 +632,13 @@ async function updateRankingGeral() {
     const entrega = b.weightedTotal > 0 ? b.weightedDelivered / b.weightedTotal : 0;
     const latScore = b.latencyScores.length ? b.latencyScores.reduce((a, c) => a + c, 0) / b.latencyScores.length : 0;
     const fakeDlrRate = b.total > 0 ? b.fakeDlrs / b.total : 0;
-    const score = Math.round((entrega * 80 + latScore * 15 + (1 - fakeDlrRate) * 5) * 100) / 100;
+    const score = Math.round((entrega * 90 + latScore * 10) * 100) / 100;
     const cbRate = b.cbTotal > 0 ? Math.round((b.cbDelivered / b.cbTotal) * 10000) / 100 : "";
     return {
       routeName: b.routeName, supplier: b.supplier, tier: b.tier,
       score, entrega: Math.round(entrega * 10000) / 100,
       latScore: Math.round(latScore * 10000) / 100,
-      antiFake: Math.round((1 - fakeDlrRate) * 10000) / 100,
+      fakeDlr: Math.round(fakeDlrRate * 10000) / 100,
       cbRate, total: b.total,
     };
   }).sort((a, b) => b.score - a.score);
@@ -646,7 +646,7 @@ async function updateRankingGeral() {
   const now = new Date().toLocaleDateString("pt-BR") + " " + new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const rows = ranked.map((r, i) => [
     i + 1, r.routeName, r.supplier, r.tier,
-    r.score, r.entrega, r.latScore, r.antiFake,
+    r.score, r.entrega, r.latScore, r.fakeDlr,
     r.cbRate, r.total, now,
   ]);
 
