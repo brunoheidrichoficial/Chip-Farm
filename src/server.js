@@ -66,7 +66,8 @@ app.get("/api/dashboard", (req, res) => {
   let summary = { latestRun: null, overallRate: 0, bestRoute: null, alerts: [], recentRuns: runs };
 
   if (latestRun) {
-    const results = db.getRunResults(latestRun.id);
+    const allResults = db.getRunResults(latestRun.id);
+    const results = allResults.filter((r) => r.telq_status !== "TEST_NUMBER_OFFLINE");
     const scores = db.getRunScores(latestRun.id);
     const total = results.length;
     const delivered = results.filter((r) => r.telq_status === "POSITIVE").length;
@@ -208,6 +209,17 @@ app.post("/api/sheets/format", async (req, res) => {
   } catch (err) {
     console.error("[API] Sheets format failed:", err.message);
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/sheets/patch-scores", async (req, res) => {
+  const sheets = require("./sheets");
+  res.json({ ok: true, message: "Patch started" });
+  try {
+    const count = await sheets.patchAllScores();
+    console.log(`[API] Sheets patch complete: ${count} cells`);
+  } catch (err) {
+    console.error("[API] Sheets patch failed:", err.message);
   }
 });
 

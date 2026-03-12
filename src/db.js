@@ -158,6 +158,7 @@ function updateTelqResult(telqTestId, data) {
 }
 
 // Mark fake DLRs (SendSpeed says delivered but TelQ never received)
+// TEST_NUMBER_OFFLINE included — if SendSpeed said delivered, it's still a fake DLR
 function markFakeDlrs(runId) {
   getDb().prepare(`
     UPDATE test_results SET fake_dlr = 1
@@ -205,7 +206,9 @@ function calculateScores(runId) {
   });
 
   for (const [, group] of Object.entries(groups)) {
-    const tests = group.tests;
+    // Filter out TEST_NUMBER_OFFLINE — TelQ chip offline, not a route issue
+    const tests = group.tests.filter((t) => t.telq_status !== "TEST_NUMBER_OFFLINE");
+    if (!tests.length) continue;
     const total = tests.length;
     const delivered = tests.filter((t) => t.telq_status === "POSITIVE").length;
     const fakeDlrs = tests.filter((t) => t.fake_dlr === 1).length;
@@ -359,7 +362,7 @@ function getAggregatedResults(filters = {}) {
       AVG(CASE WHEN tr.telq_delay_seconds IS NOT NULL THEN tr.telq_delay_seconds END) as avg_latency
     FROM test_results tr
     JOIN test_runs r ON tr.run_id = r.id
-    WHERE ${where}
+    WHERE ${where} AND (tr.telq_status IS NULL OR tr.telq_status != 'TEST_NUMBER_OFFLINE')
     GROUP BY tr.route_id, tr.route_name, tr.supplier, tr.tier, tr.network_name
     ORDER BY tr.route_name, tr.network_name
   `;

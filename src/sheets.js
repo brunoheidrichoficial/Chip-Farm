@@ -212,7 +212,7 @@ async function pushResults(scores, runResults, runId, { skipFormatting = false }
 
   const now = new Date().toLocaleDateString("pt-BR");
 
-  // Compute SendSpeed callback stats per route/network
+  // Compute SendSpeed callback stats per route/network (ALL results — CB is about SendSpeed, not TelQ)
   const cbStats = {};
   for (const r of runResults) {
     const key = `${r.route_id}__${r.network_name}`;
@@ -590,6 +590,110 @@ async function updateRunCallbacks(runId) {
   console.log(`[Sheets] CB% atualizado: ${totalUpdates} celulas para run #${runId}`);
 }
 
+// ─── Patch scores in-place across all tabs (no rebuild) ───
+
+async function patchAllScores() {
+  const sheets = getSheets();
+  if (!sheets) return;
+  const spreadsheetId = config.sheets.spreadsheetId;
+  if (!spreadsheetId) return;
+
+  const db = require("./db");
+
+  // Build lookup: run_id → route_name → network_name → score data
+  const allRuns = db.getDb().prepare("SELECT DISTINCT run_id FROM route_scores ORDER BY run_id").all();
+  const scoreLookup = {};
+  for (const { run_id } of allRuns) {
+    const scores = db.getRunScores(run_id);
+    scoreLookup[run_id] = {};
+    for (const s of scores) {
+      if (!scoreLookup[run_id][s.route_name]) scoreLookup[run_id][s.route_name] = {};
+      scoreLookup[run_id][s.route_name][s.network_name] = s;
+    }
+  }
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties.title" });
+  const tabNames = meta.data.sheets.map(s => s.properties.title);
+  let totalUpdates = 0;
+
+  for (const tab of tabNames) {
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${tab}'!A:Z` });
+    const rows = res.data.values || [];
+    if (rows.length < 2) continue;
+
+    const updates = [];
+
+    if (tab.startsWith("Resultados ")) {
+      // Headers: Data(A), Run(B), Rota(C), Fornecedor(D), Operadora(E), Testes(F), Entrega%(G), CB%(H), FakeDLR%(I), Latencia(J), Score(K)
+      for (let i = 1; i < rows.length; i++) {
+        const runId = parseInt(rows[i][1]);
+        const rota = rows[i][2];
+        const oper = rows[i][4];
+        const s = scoreLookup[runId] && scoreLookup[runId][rota] && scoreLookup[runId][rota][oper];
+        if (!s) continue;
+        const row = i + 1;
+        updates.push({ range: `'${tab}'!F${row}`, values: [[s.sample_size]] });
+        updates.push({ range: `'${tab}'!G${row}`, values: [[s.delivery_rate]] });
+        updates.push({ range: `'${tab}'!I${row}`, values: [[s.fake_dlr_rate]] });
+        updates.push({ range: `'${tab}'!J${row}`, values: [[s.avg_latency != null ? s.avg_latency : ""]] });
+        updates.push({ range: `'${tab}'!K${row}`, values: [[s.score]] });
+      }
+    } else if (tab.startsWith("Recomendacoes ")) {
+      // Headers: Data(A), Run(B), Operadora(C), MelhorRota(D), Fornecedor(E), Entrega%(F), Latencia(G), Score(H), CB%(I)
+      for (let i = 1; i < rows.length; i++) {
+        const runId = parseInt(rows[i][1]);
+        const oper = rows[i][2];
+        const rota = rows[i][3];
+        const s = scoreLookup[runId] && scoreLookup[runId][rota] && scoreLookup[runId][rota][oper];
+        if (!s) continue;
+        const row = i + 1;
+        updates.push({ range: `'${tab}'!F${row}`, values: [[s.delivery_rate]] });
+        updates.push({ range: `'${tab}'!G${row}`, values: [[s.avg_latency != null ? s.avg_latency : ""]] });
+        updates.push({ range: `'${tab}'!H${row}`, values: [[s.score]] });
+      }
+    } else if (tab.startsWith("Ranking ") && tab !== "Ranking Geral") {
+      // Headers: Data(A), Run(B), Posicao(C), Rota(D), Fornecedor(E), ScoreGeral(F), EntregaMedia%(G), LatenciaMedia(H), FakeDLR%(I), CB%(J), Operadoras(K)
+      for (let i = 1; i < rows.length; i++) {
+        const runId = parseInt(rows[i][1]);
+        const rota = rows[i][3];
+        if (!scoreLookup[runId] || !scoreLookup[runId][rota]) continue;
+        // Aggregate across networks for this route in this run
+        const networks = scoreLookup[runId][rota];
+        const vals = Object.values(networks);
+        const avg = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 100) / 100 : 0;
+        const scoreGeral = avg(vals.map(v => v.score));
+        const entregaMedia = avg(vals.map(v => v.delivery_rate));
+        const latencias = vals.filter(v => v.avg_latency != null).map(v => v.avg_latency);
+        const latMedia = latencias.length ? avg(latencias) : "";
+        const fakeDlr = avg(vals.map(v => v.fake_dlr_rate));
+        const row = i + 1;
+        updates.push({ range: `'${tab}'!F${row}`, values: [[scoreGeral]] });
+        updates.push({ range: `'${tab}'!G${row}`, values: [[entregaMedia]] });
+        updates.push({ range: `'${tab}'!H${row}`, values: [[latMedia]] });
+        updates.push({ range: `'${tab}'!I${row}`, values: [[fakeDlr]] });
+      }
+    }
+
+    if (updates.length) {
+      // Batch in chunks of 500 to avoid API limits
+      for (let j = 0; j < updates.length; j += 500) {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: { valueInputOption: "RAW", data: updates.slice(j, j + 500) },
+        });
+      }
+      totalUpdates += updates.length;
+      console.log(`[Sheets] Patched ${updates.length} cells in '${tab}'`);
+    }
+  }
+
+  // Also update Ranking Geral
+  await updateRankingGeral();
+
+  console.log(`[Sheets] Patch completo: ${totalUpdates} celulas atualizadas`);
+  return totalUpdates;
+}
+
 // ─── Ranking Geral: aggregate view across all runs, always overwritten ───
 
 async function updateRankingGeral() {
@@ -599,14 +703,14 @@ async function updateRankingGeral() {
   if (!spreadsheetId) return;
 
   const db = require("./db");
-  const allResults = db.getAllResults();
-  if (!allResults.length) return;
+  const rawResults = db.getAllResults();
+  if (!rawResults.length) return;
 
   const PRINCIPAL = ["Claro", "Vivo", "TIM"];
 
-  // Aggregate per route
+  // Aggregate per route — score/entrega uses filtered (no OFFLINE), callbacks use ALL
   const byRoute = {};
-  for (const r of allResults) {
+  for (const r of rawResults) {
     if (!byRoute[r.route_id]) {
       byRoute[r.route_id] = {
         routeName: r.route_name, supplier: r.supplier, tier: r.tier || getRouteTier(r.route_id) || "",
@@ -615,6 +719,14 @@ async function updateRankingGeral() {
       };
     }
     const b = byRoute[r.route_id];
+
+    // Callbacks count ALL results
+    if (r.sendspeed_status === "delivered") b.cbDelivered++;
+    if (r.sendspeed_status) b.cbTotal++;
+
+    // Score/entrega skip TEST_NUMBER_OFFLINE
+    if (r.telq_status === "TEST_NUMBER_OFFLINE") continue;
+
     const w = PRINCIPAL.includes(r.network_name) ? 1.0 : 0.5;
     b.weightedTotal += w;
     if (r.telq_status === "POSITIVE") b.weightedDelivered += w;
@@ -624,8 +736,6 @@ async function updateRankingGeral() {
       const s = r.telq_delay_seconds;
       b.latencyScores.push(s < 30 ? 1.0 : s < 60 ? 0.8 : s < 90 ? 0.5 : s < 120 ? 0.25 : 0.0);
     }
-    if (r.sendspeed_status === "delivered") b.cbDelivered++;
-    if (r.sendspeed_status) b.cbTotal++;
   }
 
   const ranked = Object.values(byRoute).map(b => {
@@ -673,4 +783,4 @@ async function updateRankingGeral() {
   }
 }
 
-module.exports = { pushResults, applyFormatting, rebuildAllSheets, updateRunCallbacks, updateRankingGeral };
+module.exports = { pushResults, applyFormatting, rebuildAllSheets, updateRunCallbacks, updateRankingGeral, patchAllScores };

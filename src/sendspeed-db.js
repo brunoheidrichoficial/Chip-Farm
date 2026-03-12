@@ -65,4 +65,4 @@ async function close() {
   }
 }
 
-module.exports = { fetchCallbacks, close };
+module.exports = { fetchCallbacks, close, getPool };

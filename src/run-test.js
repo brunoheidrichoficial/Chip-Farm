@@ -114,12 +114,127 @@ function buildTestPlan(campaignConfig, availableNetworks) {
   return plan;
 }
 
+// ─── Pre-flight: 3 disparos em rotas/operadoras diferentes, validação pelo TelQ ───
+async function preflight(callbackUrl) {
+  console.log("[Preflight] Validando pipeline com 3 disparos de teste...");
+
+  const networks = await telq.getNetworks();
+  const brNetworks = networks.filter(n => n.mcc === "724" && !n.portedFromMnc);
+  if (!brNetworks.length) {
+    return { ok: false, reason: "Nenhuma operadora BR disponivel na TelQ" };
+  }
+
+  // Pick 3 different route+operator combos
+  const targetMncs = ["05", "04", "02"]; // Claro, TIM, Vivo
+  const combos = [];
+  for (let i = 0; i < Math.min(3, routes.length); i++) {
+    const net = brNetworks.find(n => n.mnc === targetMncs[i % targetMncs.length]) || brNetworks[i % brNetworks.length];
+    combos.push({ route: routes[i], network: net });
+  }
+
+  console.log(`[Preflight] ${combos.length} combos: ${combos.map(c => `${c.route.name} -> ${c.network.name || "MNC-" + c.network.mnc}`).join(" | ")}`);
+
+  // Send all 3
+  const pending = [];
+  for (const { route, network } of combos) {
+    let telqTest;
+    try {
+      const tests = await telq.createTests([{ mcc: network.mcc, mnc: network.mnc }]);
+      telqTest = tests[0];
+      if (!telqTest || telqTest.errorMessage) {
+        console.log(`[Preflight] TelQ erro para ${route.name}: ${telqTest?.errorMessage || "sem numero"}`);
+        continue;
+      }
+    } catch (err) {
+      console.log(`[Preflight] TelQ falhou para ${route.name}: ${err.message}`);
+      continue;
+    }
+
+    const smsText = generateSmsText(telqTest.testIdText);
+    let sendResult;
+    try {
+      sendResult = await sendspeed.sendSms(route, telqTest.phoneNumber, smsText, callbackUrl);
+    } catch (err) {
+      console.log(`[Preflight] SendSpeed falhou para ${route.name}: ${err.message}`);
+      continue;
+    }
+
+    if (!sendResult.success && !sendResult.trace_id) {
+      console.log(`[Preflight] SendSpeed rejeitou ${route.name}: ${sendResult.error || "sem trace_id"}`);
+      continue;
+    }
+
+    pending.push({
+      route: route.name,
+      network: network.name || `MNC-${network.mnc}`,
+      telqTestId: telqTest.id,
+      traceId: sendResult.trace_id,
+    });
+    console.log(`[Preflight] Enviado: ${route.name} -> ${network.name || network.mnc} | trace=${sendResult.trace_id}`);
+    await sleep(200);
+  }
+
+  if (!pending.length) {
+    return { ok: false, reason: "Nenhum dos 3 disparos de preflight conseguiu ser enviado" };
+  }
+
+  // Poll TelQ for up to 180s
+  const maxWait = 180;
+  const pollInterval = 15;
+  const results = [];
+
+  for (let elapsed = 0; elapsed < maxWait; elapsed += pollInterval) {
+    await sleep(pollInterval * 1000);
+    for (const p of pending) {
+      if (p.telqStatus) continue;
+      try {
+        const result = await telq.getTestResult(p.telqTestId);
+        if (result.receiptStatus && result.receiptStatus !== "WAIT") {
+          p.telqStatus = result.receiptStatus;
+          results.push(p);
+          console.log(`[Preflight] ${p.route} -> ${p.network}: TelQ=${p.telqStatus}`);
+        }
+      } catch (err) {
+        // ignore poll errors
+      }
+    }
+    if (results.length === pending.length) break;
+  }
+
+  // Evaluate: need at least 1 POSITIVE out of the resolved ones
+  const resolved = pending.filter(p => p.telqStatus);
+  const positive = resolved.filter(p => p.telqStatus === "POSITIVE");
+  const timedOut = pending.filter(p => !p.telqStatus);
+
+  const summary = pending.map(p => `${p.route}/${p.network}=${p.telqStatus || "TIMEOUT"}`).join(", ");
+  console.log(`[Preflight] Resultado: ${positive.length}/${pending.length} POSITIVE | ${summary}`);
+
+  if (positive.length === 0) {
+    return { ok: false, reason: `0/${pending.length} entregas confirmadas pelo TelQ\n${summary}` };
+  }
+
+  console.log(`[Preflight] OK! ${positive.length}/${pending.length} entregas confirmadas`);
+  return { ok: true, positive: positive.length, total: pending.length, summary };
+}
+
 async function runFullTest(campaignConfig) {
   const startTime = new Date();
   console.log(`\n[Test] Starting full test at ${startTime.toISOString()}`);
 
   // Detect new vs old format
   const isNewFormat = campaignConfig && (campaignConfig.routeMode || campaignConfig.route_mode);
+
+  const callbackUrl = `${config.callbackServer.publicUrl}/callback/sendspeed`;
+
+  // ─── Pre-flight: 3 disparos de validação ───
+  const pf = await preflight(callbackUrl);
+  if (!pf.ok) {
+    console.error(`[Test] ABORTADO — preflight falhou: ${pf.reason}`);
+    await telegram.sendMessage(`❌ Teste ABORTADO (preflight falhou)\n${pf.reason}\n\nPipeline com problema. Verifique SendSpeed/TelQ.`);
+    return;
+  }
+  console.log(`[Test] Preflight OK — prosseguindo com teste completo`);
+  await telegram.sendMessage(`✅ Preflight OK (${pf.positive}/${pf.total} entregas confirmadas). Iniciando teste completo...\n${pf.summary}`);
 
   // 1. Create a new run (with campaign_id if available)
   const campaignId = campaignConfig && campaignConfig.campaignId;

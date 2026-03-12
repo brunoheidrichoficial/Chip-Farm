@@ -31,14 +31,16 @@ async function sendMessage(text) {
 // Format the daily report for Telegram — grouped by tier
 function formatReport(scores, runResults, runId) {
   const now = new Date().toLocaleDateString("pt-BR");
-  const totalTests = runResults.length;
-  const delivered = runResults.filter((r) => r.telq_status === "POSITIVE").length;
+  // Filter out TEST_NUMBER_OFFLINE — TelQ chip offline, not a route issue
+  const validResults = runResults.filter((r) => r.telq_status !== "TEST_NUMBER_OFFLINE");
+  const totalTests = validResults.length;
+  const delivered = validResults.filter((r) => r.telq_status === "POSITIVE").length;
   const overallRate = totalTests > 0 ? ((delivered / totalTests) * 100).toFixed(1) : "0";
-  const fakeDlrs = runResults.filter((r) => r.fake_dlr === 1).length;
+  const fakeDlrs = validResults.filter((r) => r.fake_dlr === 1).length;
 
   // Compute SendSpeed callback stats per route/network
   const cbStats = {};
-  for (const r of runResults) {
+  for (const r of validResults) {
     const key = `${r.route_id}__${r.network_name}`;
     if (!cbStats[key]) cbStats[key] = { total: 0, delivered: 0, failed: 0, pending: 0 };
     cbStats[key].total++;
