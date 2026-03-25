@@ -359,7 +359,7 @@ const COLORS = {
   redText:    { red: 0.40, green: 0.0,  blue: 0.0 },
   accentBlue: { red: 0.0,  green: 0.57, blue: 0.84 },
 };
-const FMT_END = 200;
+const FMT_END = 5000;
 
 function _buildSheetFormat(sheetId, endCol, colWidths, centerCols, condRules) {
   const K = COLORS, E = FMT_END, r = [];

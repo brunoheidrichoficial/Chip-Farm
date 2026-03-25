@@ -125,7 +125,7 @@ async function preflight(callbackUrl) {
   }
 
   // Pick 3 different route+operator combos
-  const targetMncs = ["05", "04", "02"]; // Claro, TIM, Vivo
+  const targetMncs = ["05", "02", "06"]; // Claro, TIM, Vivo
   const combos = [];
   for (let i = 0; i < Math.min(3, routes.length); i++) {
     const net = brNetworks.find(n => n.mnc === targetMncs[i % targetMncs.length]) || brNetworks[i % brNetworks.length];

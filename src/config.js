@@ -53,7 +53,7 @@ const config = {
 // Tier definitions (ordered by quality)
 const TIERS = ["DIAMOND", "PLATINUM", "GOLD", "SILVER", "OTP"];
 
-// All 12 SendSpeed routes
+// All 13 SendSpeed routes
 const routes = [
   { id: 1897, token: "40c8ef90-2a8c-4905-bce1-b97324042262", name: "Pushfy v2 Principal", supplier: "Pushfy", type: "Principal", tier: "GOLD" },
   { id: 1898, token: "3f9bc21e-726c-45c0-ba66-b0650ccbae84", name: "Sona V2 (bet3)", supplier: "Sona", type: "BET", tier: "GOLD" },
@@ -67,6 +67,7 @@ const routes = [
   { id: 1906, token: "bed34699-8ac6-488a-943b-1ffb66370c8b", name: "Infobip OTP", supplier: "Infobip", type: "OTP", tier: "OTP" },
   { id: 1909, token: "00b9d53a-4327-4e45-808f-735ff0c087c5", name: "Infobip Blend 35", supplier: "Infobip", type: "Blend", tier: "GOLD" },
   { id: 1910, token: "a64392a8-3334-4e27-98df-5b6697a90296", name: "Infobip Blend 41", supplier: "Infobip", type: "Blend", tier: "PLATINUM" },
+  { id: 1912, token: "f31042a0-eb3f-4357-88e8-953c846be9da", name: "Infobip Pos Paga", supplier: "Infobip", type: "Pos Paga", tier: "GOLD" },
 ];
 
 // Lookup tier by route ID

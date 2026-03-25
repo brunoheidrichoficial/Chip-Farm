@@ -103,7 +103,7 @@ function migrateTier() {
 
   // Backfill existing data based on route_id → tier mapping
   const tierMap = {
-    GOLD: [1897, 1898, 1909],
+    GOLD: [1897, 1898, 1909, 1912],
     PLATINUM: [1910, 1900],
     DIAMOND: [1903, 1899, 1905],
     SILVER: [1901],
