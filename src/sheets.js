@@ -694,7 +694,7 @@ async function patchAllScores() {
   return totalUpdates;
 }
 
-// ─── Ranking Geral: aggregate view across all runs, always overwritten ───
+// ─── Ranking Geral: aggregate from route_scores (same source as per-tier rankings) ───
 
 async function updateRankingGeral() {
   const sheets = getSheets();
@@ -703,53 +703,62 @@ async function updateRankingGeral() {
   if (!spreadsheetId) return;
 
   const db = require("./db");
+
+  // Get all run scores (same data that feeds per-tier Ranking tabs)
+  const allRuns = db.getDb().prepare("SELECT DISTINCT run_id FROM route_scores ORDER BY run_id").all();
+  if (!allRuns.length) return;
+
+  // Also get raw results for CB% (callbacks are not in route_scores)
   const rawResults = db.getAllResults();
-  if (!rawResults.length) return;
 
-  const PRINCIPAL = ["Claro", "Vivo", "TIM"];
-
-  // Aggregate per route — score/entrega uses filtered (no OFFLINE), callbacks use ALL
+  // Aggregate scores per route: average of per-run scores (each run = equal weight)
   const byRoute = {};
-  for (const r of rawResults) {
-    if (!byRoute[r.route_id]) {
-      byRoute[r.route_id] = {
-        routeName: r.route_name, supplier: r.supplier, tier: r.tier || getRouteTier(r.route_id) || "",
-        weightedDelivered: 0, weightedTotal: 0, fakeDlrs: 0, total: 0,
-        latencyScores: [], cbDelivered: 0, cbTotal: 0,
-      };
+  for (const { run_id } of allRuns) {
+    const scores = db.getRunScores(run_id);
+    // Aggregate per route within this run (same logic as buildSheetData ranking)
+    const runByRoute = {};
+    for (const s of scores) {
+      if (!runByRoute[s.route_id]) runByRoute[s.route_id] = { routeName: s.route_name, supplier: s.supplier, tier: s.tier || getRouteTier(s.route_id) || "", scores: [], entregas: [], latencies: [], fakeDlrs: [], samples: 0 };
+      const r = runByRoute[s.route_id];
+      r.scores.push(s.score);
+      r.entregas.push(s.delivery_rate);
+      if (s.avg_latency != null) r.latencies.push(s.avg_latency);
+      r.fakeDlrs.push(s.fake_dlr_rate);
+      r.samples += s.sample_size;
     }
-    const b = byRoute[r.route_id];
-
-    // Callbacks count ALL results
-    if (r.sendspeed_status === "delivered") b.cbDelivered++;
-    if (r.sendspeed_status) b.cbTotal++;
-
-    // Score/entrega skip TEST_NUMBER_OFFLINE
-    if (r.telq_status === "TEST_NUMBER_OFFLINE") continue;
-
-    const w = PRINCIPAL.includes(r.network_name) ? 1.0 : 0.5;
-    b.weightedTotal += w;
-    if (r.telq_status === "POSITIVE") b.weightedDelivered += w;
-    if (r.fake_dlr === 1) b.fakeDlrs++;
-    b.total++;
-    if (r.telq_delay_seconds != null) {
-      const s = r.telq_delay_seconds;
-      b.latencyScores.push(s < 30 ? 1.0 : s < 60 ? 0.8 : s < 90 ? 0.5 : s < 120 ? 0.25 : 0.0);
+    // Each run produces one aggregated score per route
+    for (const [routeId, r] of Object.entries(runByRoute)) {
+      if (!byRoute[routeId]) byRoute[routeId] = { routeName: r.routeName, supplier: r.supplier, tier: r.tier, runScores: [], runEntregas: [], runLatencies: [], runFakeDlrs: [], totalSamples: 0 };
+      const b = byRoute[routeId];
+      const avg = arr => arr.length ? arr.reduce((a, c) => a + c, 0) / arr.length : 0;
+      b.runScores.push(avg(r.scores));
+      b.runEntregas.push(avg(r.entregas));
+      if (r.latencies.length) b.runLatencies.push(avg(r.latencies));
+      b.runFakeDlrs.push(avg(r.fakeDlrs));
+      b.totalSamples += r.samples;
     }
   }
 
-  const ranked = Object.values(byRoute).map(b => {
-    const entrega = b.weightedTotal > 0 ? b.weightedDelivered / b.weightedTotal : 0;
-    const latScore = b.latencyScores.length ? b.latencyScores.reduce((a, c) => a + c, 0) / b.latencyScores.length : 0;
-    const fakeDlrRate = b.total > 0 ? b.fakeDlrs / b.total : 0;
-    const score = Math.round((entrega * 90 + latScore * 10) * 100) / 100;
-    const cbRate = b.cbTotal > 0 ? Math.round((b.cbDelivered / b.cbTotal) * 10000) / 100 : "";
+  // CB% from raw results (consistent denominator: count ALL results)
+  const cbByRoute = {};
+  for (const r of rawResults) {
+    if (!cbByRoute[r.route_id]) cbByRoute[r.route_id] = { delivered: 0, total: 0 };
+    cbByRoute[r.route_id].total++;
+    if (r.sendspeed_status === "delivered") cbByRoute[r.route_id].delivered++;
+  }
+
+  const avg = arr => arr.length ? Math.round(arr.reduce((a, c) => a + c, 0) / arr.length * 100) / 100 : 0;
+
+  const ranked = Object.entries(byRoute).map(([routeId, b]) => {
+    const cb = cbByRoute[routeId];
+    const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : "";
     return {
       routeName: b.routeName, supplier: b.supplier, tier: b.tier,
-      score, entrega: Math.round(entrega * 10000) / 100,
-      latScore: Math.round(latScore * 10000) / 100,
-      fakeDlr: Math.round(fakeDlrRate * 10000) / 100,
-      cbRate, total: b.total,
+      score: avg(b.runScores),
+      entrega: avg(b.runEntregas),
+      latScore: avg(b.runLatencies),
+      fakeDlr: avg(b.runFakeDlrs),
+      cbRate, total: b.totalSamples,
     };
   }).sort((a, b) => b.score - a.score);
 
