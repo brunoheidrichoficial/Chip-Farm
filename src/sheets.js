@@ -97,9 +97,27 @@ const RANKING_HEADERS = [
   "Fake DLR %", "CB SendSpeed %", "Operadoras Testadas",
 ];
 
+// Trimmed mean: remove highest and lowest, average the rest. Falls back to normal avg if <= 2 elements.
+function trimmedMean(arr) {
+  if (!arr.length) return 0;
+  if (arr.length <= 2) return arr.reduce((a, c) => a + c, 0) / arr.length;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const trimmed = sorted.slice(1, -1);
+  return trimmed.reduce((a, c) => a + c, 0) / trimmed.length;
+}
+
+// Median: middle value (or average of two middle values).
+function median(arr) {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 const RANKING_GERAL_HEADERS = [
   "Posicao", "Rota", "Fornecedor", "Tier",
-  "Score", "Entrega Pond %", "Latencia Score",
+  "Score (TM)", "Score (Mediana)", "Score (Média)",
+  "Entrega Pond %", "Latencia Score",
   "Fake DLR %", "CB SendSpeed %", "Testes", "Ultima Atualizacao",
 ];
 
@@ -752,25 +770,37 @@ async function updateRankingGeral() {
   const ranked = Object.entries(byRoute).map(([routeId, b]) => {
     const cb = cbByRoute[routeId];
     const cbRate = cb && cb.total > 0 ? Math.round((cb.delivered / cb.total) * 10000) / 100 : "";
+    const round2 = v => Math.round(v * 100) / 100;
     return {
       routeName: b.routeName, supplier: b.supplier, tier: b.tier,
-      score: avg(b.runScores),
+      scoreTM: round2(trimmedMean(b.runScores)),
+      scoreMed: round2(median(b.runScores)),
+      scoreAvg: avg(b.runScores),
       entrega: avg(b.runEntregas),
       latScore: avg(b.runLatencies),
       fakeDlr: avg(b.runFakeDlrs),
       cbRate, total: b.totalSamples,
     };
-  }).sort((a, b) => b.score - a.score);
+  }).sort((a, b) => b.scoreTM - a.scoreTM);
 
   const now = new Date().toLocaleDateString("pt-BR") + " " + new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const rows = ranked.map((r, i) => [
     i + 1, r.routeName, r.supplier, r.tier,
-    r.score, r.entrega, r.latScore, r.fakeDlr,
+    r.scoreTM, r.scoreMed, r.scoreAvg,
+    r.entrega, r.latScore, r.fakeDlr,
     r.cbRate, r.total, now,
   ]);
 
   const sheetName = "Ranking Geral";
   await ensureHeaders(sheetName, RANKING_GERAL_HEADERS);
+
+  // Force-update headers (ensureHeaders skips if row exists)
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${sheetName}'!A1`,
+    valueInputOption: "RAW",
+    requestBody: { values: [RANKING_GERAL_HEADERS] },
+  });
 
   // Clear existing data (keep header) and write fresh
   try {
